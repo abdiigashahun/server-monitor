@@ -9,6 +9,7 @@ import {
   Settings,
   LogOut,
   Shield,
+  Users,
 } from 'lucide-react';
 import { useMonitoring } from '../../context/MonitoringContext';
 import { useAuth } from '../../context/AuthContext';
@@ -23,6 +24,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
   const { alerts } = useMonitoring();
   const { user, logout } = useAuth();
   const activeAlertsCount = alerts.filter((a) => a.status === 'Active').length;
+  const isAdmin = user?.role === 'Admin';
 
   const coreModules = [
     { id: 'dashboard', label: 'Dashboard Overview', icon: LayoutDashboard },
@@ -46,6 +48,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
   ];
 
   const adminModules = [
+    ...(isAdmin
+      ? [
+          {
+            id: 'users',
+            label: 'User Management',
+            icon: Users,
+          },
+        ]
+      : []),
     {
       id: 'activity',
       label: 'User Activity & Changes',

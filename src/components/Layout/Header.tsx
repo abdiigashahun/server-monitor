@@ -46,38 +46,22 @@ export const Header: React.FC<HeaderProps> = ({ activeTab }) => {
 
   return (
     <header className="h-16 bg-white dark:bg-[#111827] border-b border-gray-200 dark:border-gray-800 px-4 sm:px-6 lg:px-8 flex items-center justify-between sticky top-0 z-40 text-[#1A1A1A] dark:text-[#F9FAFB] transition-colors duration-200">
-      {/* DC Switcher & Live System Badges */}
+      {/* Left side: Live System Status Badges */}
       <div className="flex items-center space-x-3 sm:space-x-4">
-        {/* Global Data Center Switcher */}
-        <div className="flex items-center gap-1.5">
-          <span className="text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400">DC Scope:</span>
-          <select
-            value={selectedDataCenter}
-            onChange={(e) => setSelectedDataCenter(e.target.value)}
-            className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded px-2.5 py-1 text-xs font-mono font-semibold text-blue-600 dark:text-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer max-w-[220px] truncate"
-            title="Switch active Data Center context"
-          >
-            <option value="ALL">🌐 All 10 Data Centers</option>
-            {dataCenters.map((dc) => (
-              <option key={dc.id} value={dc.id}>
-                📍 {dc.id} - {dc.name} ({dc.city})
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="hidden sm:flex space-x-2">
+        <div className="flex items-center space-x-2">
           {criticalAlerts.length > 0 ? (
-            <span className="px-2 py-0.5 bg-red-100 dark:bg-red-950/80 text-red-700 dark:text-red-300 text-[10px] font-bold rounded uppercase border border-red-200 dark:border-red-800">
-              {criticalAlerts.length} Critical
+            <span className="px-2.5 py-1 bg-red-100 dark:bg-red-950/80 text-red-700 dark:text-red-300 text-[11px] font-bold rounded-sm uppercase border border-red-200 dark:border-red-800 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+              {criticalAlerts.length} Critical Issues
             </span>
           ) : (
-            <span className="px-2 py-0.5 bg-green-100 dark:bg-green-950/80 text-green-700 dark:text-green-300 text-[10px] font-bold rounded uppercase border border-green-200 dark:border-green-800">
-              System Operational
+            <span className="px-2.5 py-1 bg-green-100 dark:bg-green-950/80 text-green-700 dark:text-green-300 text-[11px] font-bold rounded-sm uppercase border border-green-200 dark:border-green-800 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+              10/10 DCs Operational
             </span>
           )}
           {activeAlerts.length > 0 && (
-            <span className="px-2 py-0.5 bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 text-[10px] font-bold rounded uppercase border border-amber-200 dark:border-amber-800">
+            <span className="px-2.5 py-1 bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 text-[11px] font-bold rounded-sm uppercase border border-amber-200 dark:border-amber-800">
               {activeAlerts.length} Active Alerts
             </span>
           )}
@@ -86,15 +70,6 @@ export const Header: React.FC<HeaderProps> = ({ activeTab }) => {
 
       {/* Right side controls */}
       <div className="flex items-center space-x-3 sm:space-x-4">
-        {/* Search */}
-        <div className="relative hidden md:block w-56 lg:w-64">
-          <Search className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            placeholder="Search logs & servers..."
-            className="w-full pl-8 pr-4 py-1.5 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-xs text-gray-800 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
-        </div>
 
         {/* Dark/Light Mode Theme Switcher */}
         <button

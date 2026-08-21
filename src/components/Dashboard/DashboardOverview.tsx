@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useMonitoring } from '../../context/MonitoringContext';
+import { useAuth } from '../../context/AuthContext';
 import { RecentActivityFeed } from '../Activity/RecentActivityFeed';
 import { getHealthBadgeClass, getSeverityBadgeClass } from '../../utils/formatters';
 import {
@@ -40,13 +41,28 @@ export const DashboardOverview: React.FC = () => {
     setSelectedDataCenter,
   } = useMonitoring();
 
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'Admin';
+
   const [activeTokenModalServer, setActiveTokenModalServer] = useState<string | null>(null);
 
   const totalServers = 120;
   const linuxCount = 70;
   const windowsCount = 50;
 
-  const activeAlerts = alerts.filter((a) => a.status === 'Active');
+  const visibleAlerts = alerts.filter((a) => {
+    if (!isAdmin && (
+      a.title.includes('Issue Resolved') ||
+      a.title.includes('Operator Action') ||
+      a.title.includes('Resolved by Operator') ||
+      a.description.includes('Operator')
+    )) {
+      return false;
+    }
+    return true;
+  });
+
+  const activeAlerts = visibleAlerts.filter((a) => a.status === 'Active');
   const criticalAlerts = activeAlerts.filter((a) => a.severity === 'Critical');
 
   const healthyServersCount = servers.filter((s) => s.healthStatus === 'Operational').length;
@@ -233,15 +249,17 @@ export const DashboardOverview: React.FC = () => {
                 >
 
                   <div>
-                    <div className="font-bold text-gray-900 font-mono">{alert.serverName}</div>
-                    <div className="text-[11px] text-gray-600 line-clamp-1">{alert.title}</div>
+                    <div className="font-bold text-gray-900 dark:text-white font-mono">{alert.serverName}</div>
+                    <div className="text-[11px] text-gray-600 dark:text-gray-400 line-clamp-1">{alert.title}</div>
                   </div>
-                  <button
-                    onClick={() => acknowledgeAlert(alert.id)}
-                    className="px-2.5 py-1 text-[10px] font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-sm shadow-sm transition-colors uppercase tracking-wider"
-                  >
-                    Ack
-                  </button>
+                  {isAdmin && (
+                    <button
+                      onClick={() => acknowledgeAlert(alert.id)}
+                      className="px-2.5 py-1 text-[10px] font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-sm shadow-sm transition-colors uppercase tracking-wider cursor-pointer"
+                    >
+                      Ack
+                    </button>
+                  )}
                 </div>
               ))}
             </div>

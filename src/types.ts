@@ -3,7 +3,7 @@ export type OS = 'Linux' | 'Windows';
 export type CriticalityLevel = 'High' | 'Medium' | 'Low';
 export type HealthStatus = 'Operational' | 'Warning' | 'Critical';
 export type BackupStatus = 'Success' | 'Failed' | 'In Progress';
-export type BackupType = 'Full' | 'Incremental';
+export type BackupType = 'Full' | 'Incremental' | 'Differential' | 'Snapshot';
 
 export interface Server {
   id: string;
@@ -28,6 +28,9 @@ export interface Server {
   backupType: BackupType;
   backupSizeGB: number;
   backupLocation: string;
+  backupSchedule?: string;
+  backupRetentionDays?: number;
+  backupJobName?: string;
 }
 
 export type AlertSeverity = 'Critical' | 'Warning' | 'Info';
@@ -80,8 +83,17 @@ export interface AuthUser {
   avatarUrl: string;
   twoFactorEnabled: boolean;
   lastLogin: string;
+  accountStatus?: 'Active' | 'Suspended';
+  createdAt?: string;
   ipAddress?: string;
   permissions: RolePermissions;
+}
+
+export interface UserAccount {
+  id: string;
+  username: string;
+  passwordHash: string; // Plaintext demo password
+  user: AuthUser;
 }
 
 export interface UserSession {

@@ -12,16 +12,18 @@ import { UserActivityTracker } from './components/Activity/UserActivityTracker';
 import { AlertsLogsPage } from './pages/AlertsLogs/AlertsLogsPage';
 import { ReportsPage } from './pages/Reports/ReportsPage';
 import { SettingsPage } from './pages/Settings/SettingsPage';
+import { UserManagementPage } from './pages/Admin/UserManagementPage';
 
 function AppContent() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
+  const isAdmin = user?.role === 'Admin';
   const [activeTab, setActiveTab] = useState<string>('dashboard');
 
   // Simple hash router support for direct linking e.g. #/datacenters
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash.replace('#/', '');
-      if (['dashboard', 'datacenters', 'inventory', 'backup', 'alerts-logs', 'reports', 'settings', 'activity', 'login'].includes(hash)) {
+      if (['dashboard', 'datacenters', 'inventory', 'backup', 'alerts-logs', 'reports', 'settings', 'activity', 'users', 'login'].includes(hash)) {
         setActiveTab(hash);
       }
     };
@@ -49,6 +51,7 @@ function AppContent() {
       {activeTab === 'alerts-logs' && <AlertsLogsPage />}
       {activeTab === 'reports' && <ReportsPage />}
       {activeTab === 'activity' && <UserActivityTracker />}
+      {activeTab === 'users' && (isAdmin ? <UserManagementPage /> : <DashboardOverview />)}
       {activeTab === 'settings' && <SettingsPage />}
     </Layout>
   );

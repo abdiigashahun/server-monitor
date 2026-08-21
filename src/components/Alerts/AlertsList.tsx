@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useMonitoring } from '../../context/MonitoringContext';
+import { useAuth } from '../../context/AuthContext';
 import { AlertCard } from './AlertCard';
 import { AlertFilter } from './AlertFilter';
 import { AcknowledgeModal } from './AcknowledgeModal';
@@ -8,6 +9,8 @@ import { ShieldAlert, CheckCircle, BellRing } from 'lucide-react';
 
 export const AlertsList: React.FC = () => {
   const { alerts, acknowledgeAlert, resolveAlert } = useMonitoring();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'Admin';
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSeverity, setSelectedSeverity] = useState('ALL');
@@ -15,7 +18,22 @@ export const AlertsList: React.FC = () => {
   const [selectedStatus, setSelectedStatus] = useState('ALL');
   const [selectedAlertForAck, setSelectedAlertForAck] = useState<Alert | null>(null);
 
-  const filteredAlerts = alerts.filter((alert) => {
+  // Role-based alert visibility: Issue Resolved and Operator Action alerts only appear for Admin
+  const visibleAlerts = alerts.filter((alert) => {
+    if (!isAdmin && (
+      alert.title.includes('Issue Resolved') ||
+      alert.title.includes('Operator Action') ||
+      alert.title.includes('Resolved by Operator') ||
+      alert.description.includes('Operator resolved') ||
+      alert.description.includes('Operator triggered') ||
+      alert.description.includes('Operator performed')
+    )) {
+      return false;
+    }
+    return true;
+  });
+
+  const filteredAlerts = visibleAlerts.filter((alert) => {
     const matchesSearch =
       alert.serverName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       alert.ipAddress.includes(searchQuery) ||
@@ -29,9 +47,9 @@ export const AlertsList: React.FC = () => {
     return matchesSearch && matchesSeverity && matchesMetric && matchesStatus;
   });
 
-  const activeCount = alerts.filter((a) => a.status === 'Active').length;
-  const criticalCount = alerts.filter((a) => a.severity === 'Critical' && a.status === 'Active').length;
-  const acknowledgedCount = alerts.filter((a) => a.status === 'Acknowledged').length;
+  const activeCount = visibleAlerts.filter((a) => a.status === 'Active').length;
+  const criticalCount = visibleAlerts.filter((a) => a.severity === 'Critical' && a.status === 'Active').length;
+  const acknowledgedCount = visibleAlerts.filter((a) => a.status === 'Acknowledged').length;
 
   const handleResetFilters = () => {
     setSearchQuery('');

@@ -92,7 +92,7 @@ export const AlertCard: React.FC<AlertCardProps> = ({
         <div className="flex sm:flex-col items-end gap-2 shrink-0 self-end sm:self-auto mt-2 sm:mt-0">
           {canHandleAlerts ? (
             <>
-              {alert.status === 'Active' && (
+              {alert.status === 'Active' && user?.role === 'Admin' && (
                 <button
                   onClick={() => onAcknowledgeClick(alert)}
                   className="px-3 py-1.5 text-xs font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-100 dark:hover:bg-amber-900/60 border border-amber-200 dark:border-amber-800 rounded-sm transition-colors flex items-center gap-1 cursor-pointer"

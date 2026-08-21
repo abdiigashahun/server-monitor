@@ -273,11 +273,14 @@ export const INITIAL_SERVERS: Server[] = [
     networkStatus: 'Online',
     healthStatus: 'Warning',
     agentToken: 'agt_tok_8942a1f09c8e',
-    lastBackupTime: '2026-08-06 02:00:00',
+    lastBackupTime: '2026-08-21 02:00:00',
     backupStatus: 'Success',
     backupType: 'Full',
     backupSizeGB: 245.8,
-    backupLocation: '/mnt/backups/gov-portal-01',
+    backupLocation: 's3://gov-portal-backups/daily',
+    backupJobName: 'gov-portal-daily-full',
+    backupSchedule: 'Daily at 02:00 AM',
+    backupRetentionDays: 30,
   },
   {
     id: 'srv-002',
@@ -297,11 +300,14 @@ export const INITIAL_SERVERS: Server[] = [
     networkStatus: 'Online',
     healthStatus: 'Critical',
     agentToken: 'agt_tok_3411b77f01aa',
-    lastBackupTime: '2026-08-05 01:00:00',
+    lastBackupTime: '2026-08-20 01:00:00',
     backupStatus: 'Failed', // Backup failure alert
     backupType: 'Incremental',
     backupSizeGB: 812.4,
     backupLocation: 's3://gov-finance-backups/node2',
+    backupJobName: 'fin-db-hourly-sync',
+    backupSchedule: 'Every 6 Hours',
+    backupRetentionDays: 90,
   },
   {
     id: 'srv-003',
@@ -321,11 +327,14 @@ export const INITIAL_SERVERS: Server[] = [
     networkStatus: 'Degraded',
     healthStatus: 'Warning',
     agentToken: 'agt_tok_9021dd510b33',
-    lastBackupTime: '2026-08-06 03:30:00',
+    lastBackupTime: '2026-08-21 03:30:00',
     backupStatus: 'Success',
     backupType: 'Incremental',
     backupSizeGB: 120.5,
     backupLocation: 'D:\\Backups\\TaxApp',
+    backupJobName: 'tax-system-diff-sync',
+    backupSchedule: 'Daily at 03:30 AM',
+    backupRetentionDays: 60,
   },
   {
     id: 'srv-004',
@@ -345,11 +354,14 @@ export const INITIAL_SERVERS: Server[] = [
     networkStatus: 'Online',
     healthStatus: 'Warning',
     agentToken: 'agt_tok_1109ff8271ab',
-    lastBackupTime: '2026-08-06 00:15:00',
+    lastBackupTime: '2026-08-21 00:15:00',
     backupStatus: 'Success',
     backupType: 'Full',
     backupSizeGB: 1850.0,
     backupLocation: '\\\\nas01\\health\\backups',
+    backupJobName: 'health-vault-cold-archive',
+    backupSchedule: 'Weekly on Sunday',
+    backupRetentionDays: 365,
   },
   {
     id: 'srv-005',
@@ -369,11 +381,14 @@ export const INITIAL_SERVERS: Server[] = [
     networkStatus: 'Online',
     healthStatus: 'Operational',
     agentToken: 'agt_tok_5541ee0021bb',
-    lastBackupTime: '2026-08-06 04:00:00',
+    lastBackupTime: '2026-08-21 04:00:00',
     backupStatus: 'Success',
-    backupType: 'Incremental',
+    backupType: 'Differential',
     backupSizeGB: 12.2,
     backupLocation: '/var/backups/dns',
+    backupJobName: 'dns-zone-state-snapshot',
+    backupSchedule: 'Daily at 04:00 AM',
+    backupRetentionDays: 30,
   },
   {
     id: 'srv-006',
@@ -393,11 +408,14 @@ export const INITIAL_SERVERS: Server[] = [
     networkStatus: 'Online',
     healthStatus: 'Warning',
     agentToken: 'agt_tok_7722cc990011',
-    lastBackupTime: '2026-08-06 02:45:00',
+    lastBackupTime: '2026-08-21 02:45:00',
     backupStatus: 'Success',
     backupType: 'Incremental',
     backupSizeGB: 410.0,
     backupLocation: '/backup/mail/relay02',
+    backupJobName: 'mail-relay-journal-backup',
+    backupSchedule: 'Every 12 Hours',
+    backupRetentionDays: 60,
   },
   {
     id: 'srv-007',
@@ -417,11 +435,14 @@ export const INITIAL_SERVERS: Server[] = [
     networkStatus: 'Online',
     healthStatus: 'Operational',
     agentToken: 'agt_tok_6611aa883311',
-    lastBackupTime: '2026-08-06 01:30:00',
+    lastBackupTime: '2026-08-21 01:30:00',
     backupStatus: 'Success',
     backupType: 'Full',
     backupSizeGB: 320.0,
     backupLocation: 'E:\\EduPortal\\Backups',
+    backupJobName: 'edu-portal-weekly-full',
+    backupSchedule: 'Daily at 01:30 AM',
+    backupRetentionDays: 90,
   },
   {
     id: 'srv-008',
@@ -441,11 +462,14 @@ export const INITIAL_SERVERS: Server[] = [
     networkStatus: 'Online',
     healthStatus: 'Critical',
     agentToken: 'agt_tok_9988ff442211',
-    lastBackupTime: '2026-08-04 12:00:00', // > 24 hours ago! Backup delayed alert
+    lastBackupTime: '2026-08-19 12:00:00', // > 24 hours ago! Backup delayed alert
     backupStatus: 'Failed',
     backupType: 'Full',
     backupSizeGB: 1240.0,
     backupLocation: '/opt/police_cad/backups',
+    backupJobName: 'police-cad-daily-image',
+    backupSchedule: 'Daily at 12:00 AM',
+    backupRetentionDays: 180,
   },
 ];
 
@@ -586,14 +610,9 @@ export const ROLE_PERMISSIONS: Record<string, import('../types').RolePermissions
   },
 };
 
-export interface MockAccount {
-  id: string;
-  username: string;
-  passwordHash: string; // Plaintext demo verification
-  user: import('../types').AuthUser;
-}
+export type MockAccount = import('../types').UserAccount;
 
-export const DEMO_ACCOUNTS: MockAccount[] = [
+export const DEMO_ACCOUNTS: import('../types').UserAccount[] = [
   {
     id: 'usr-admin-01',
     username: 'admin',
@@ -610,6 +629,8 @@ export const DEMO_ACCOUNTS: MockAccount[] = [
       avatarUrl: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=200',
       twoFactorEnabled: true,
       lastLogin: '2026-08-19T06:50:00-07:00',
+      accountStatus: 'Active',
+      createdAt: '2026-01-10T08:00:00Z',
       ipAddress: '10.200.4.15',
       permissions: ROLE_PERMISSIONS['Admin'],
     },
@@ -630,6 +651,8 @@ export const DEMO_ACCOUNTS: MockAccount[] = [
       avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=200',
       twoFactorEnabled: true,
       lastLogin: '2026-08-19T06:15:00-07:00',
+      accountStatus: 'Active',
+      createdAt: '2026-02-14T09:30:00Z',
       ipAddress: '10.200.6.12',
       permissions: ROLE_PERMISSIONS['Operator'],
     },
@@ -650,6 +673,8 @@ export const DEMO_ACCOUNTS: MockAccount[] = [
       avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=200',
       twoFactorEnabled: false,
       lastLogin: '2026-08-19T05:30:00-07:00',
+      accountStatus: 'Active',
+      createdAt: '2026-03-20T11:00:00Z',
       ipAddress: '10.200.12.9',
       permissions: ROLE_PERMISSIONS['User'],
     },

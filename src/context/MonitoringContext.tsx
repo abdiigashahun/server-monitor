@@ -72,6 +72,20 @@ interface MonitoringContextType {
   ) => void;
   generateAgentToken: (serverId: string) => string;
   runPingTest: (serverId: string) => Promise<{ success: boolean; latencyMs: number; details: string }>;
+  // Backup Actions
+  triggerServerBackup: (serverId: string) => Promise<{ success: boolean; message: string }>;
+  restoreServerBackup: (serverId: string, restoreScope?: string) => Promise<{ success: boolean; message: string }>;
+  editBackupSchedule: (
+    serverId: string,
+    data: {
+      backupType: import('../types').BackupType;
+      backupLocation: string;
+      backupSchedule: string;
+      backupRetentionDays: number;
+      backupJobName?: string;
+    }
+  ) => void;
+  deleteBackupJob: (serverId: string) => void;
   toggleLiveSimulation: () => void;
   dismissToast: (id: string) => void;
   addToast: (title: string, message: string, type?: ToastNotification['type']) => void;
@@ -209,6 +223,24 @@ export const MonitoringProvider: React.FC<{ children: ReactNode }> = ({ children
       );
     }
 
+    // Generate an Alert Notice for the Admin
+    const resolvedNoticeAlert: Alert = {
+      id: `alert-notice-${Date.now()}`,
+      serverId: targetAlert.serverId,
+      serverName: targetAlert.serverName,
+      ipAddress: targetAlert.ipAddress,
+      title: `Issue Resolved: ${targetAlert.title}`,
+      description: `Operator resolved ${targetAlert.severity.toLowerCase()} issue "${targetAlert.title}" on ${targetAlert.serverName}. Note: ${note || 'Issue addressed and verified.'}`,
+      metric: targetAlert.metric,
+      value: 'Resolved',
+      threshold: targetAlert.threshold,
+      severity: 'Info',
+      status: 'Active',
+      timestamp: now,
+    };
+
+    setAlerts((prev) => [resolvedNoticeAlert, ...prev]);
+
     addAuditLog(
       'Resolve Alert',
       `Alert #${alertId} (${targetAlert.serverName})`,
@@ -221,8 +253,8 @@ export const MonitoringProvider: React.FC<{ children: ReactNode }> = ({ children
     );
 
     addToast(
-      'Alert Resolved',
-      `Alert #${alertId} on ${targetAlert.serverName} was marked as resolved.`,
+      'Issue Resolved & Admin Notified',
+      `Alert on ${targetAlert.serverName} marked as resolved. Resolution alert logged for Admin.`,
       'success'
     );
   };
@@ -597,6 +629,261 @@ export const MonitoringProvider: React.FC<{ children: ReactNode }> = ({ children
     );
   };
 
+  // Trigger manual server backup run
+  const triggerServerBackup = async (serverId: string): Promise<{ success: boolean; message: string }> => {
+    const target = servers.find((s) => s.id === serverId);
+    if (!target) return { success: false, message: 'Server not found.' };
+
+    // Set In Progress
+    setServers((prev) =>
+      prev.map((s) => (s.id === serverId ? { ...s, backupStatus: 'In Progress' } : s))
+    );
+
+    addToast(
+      'Backup Job Started',
+      `Manual snapshot initiated for ${target.name} (${target.backupType} Backup).`,
+      'info'
+    );
+
+    // Simulate snapshot generation
+    await new Promise((resolve) => setTimeout(resolve, 1400));
+
+    const now = new Date();
+    const formattedDate = `${now.toISOString().split('T')[0]} ${now.toTimeString().split(' ')[0]}`;
+
+    setServers((prev) =>
+      prev.map((s) =>
+        s.id === serverId
+          ? {
+              ...s,
+              backupStatus: 'Success',
+              lastBackupTime: formattedDate,
+            }
+          : s
+      )
+    );
+
+    // Auto-resolve any active backup alerts for this server
+    setAlerts((prev) =>
+      prev.map((a) =>
+        a.serverId === serverId && a.metric === 'Backup' && a.status === 'Active'
+          ? { ...a, status: 'Resolved', resolvedAt: new Date().toISOString() }
+          : a
+      )
+    );
+
+    // Operator Action Alert for Admin
+    const backupNoticeAlert: Alert = {
+      id: `alert-backup-${Date.now()}`,
+      serverId: target.id,
+      serverName: target.name,
+      ipAddress: target.ipAddress,
+      title: `Operator Action: Manual Backup on ${target.name}`,
+      description: `Operator triggered manual ${target.backupType} snapshot (${target.backupSizeGB} GB) stored at ${target.backupLocation}.`,
+      metric: 'Backup',
+      value: `${target.backupSizeGB} GB`,
+      threshold: 'RPO 24h',
+      severity: 'Info',
+      status: 'Active',
+      timestamp: new Date().toISOString(),
+    };
+    setAlerts((prev) => [backupNoticeAlert, ...prev]);
+
+    addAuditLog(
+      'Manual Backup Executed',
+      `Server ${target.name} (${target.ipAddress})`,
+      `Completed ${target.backupType} backup snapshot (${target.backupSizeGB} GB) to ${target.backupLocation}.`,
+      'Success',
+      'SYSTEM',
+      { previousStatus: target.backupStatus, lastBackup: target.lastBackupTime },
+      { newStatus: 'Success', lastBackup: formattedDate },
+      '#/backup'
+    );
+
+    addToast(
+      'Backup Succeeded & Admin Notified',
+      `Snapshot created for ${target.name}. Admin notification logged.`,
+      'success'
+    );
+
+    return { success: true, message: `Backup for ${target.name} completed successfully.` };
+  };
+
+  // Restore server from backup
+  const restoreServerBackup = async (serverId: string, restoreScope = 'Full System State'): Promise<{ success: boolean; message: string }> => {
+    const target = servers.find((s) => s.id === serverId);
+    if (!target) return { success: false, message: 'Server not found.' };
+
+    addToast(
+      'Restore Initiated',
+      `Preparing ${restoreScope} restoration for ${target.name} from snapshot (${target.lastBackupTime})...`,
+      'info'
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    // Reset health status to Operational upon clean restoration
+    setServers((prev) =>
+      prev.map((s) =>
+        s.id === serverId
+          ? {
+              ...s,
+              healthStatus: 'Operational',
+              cpuUsage: Math.min(s.cpuUsage, 45),
+              diskUsage: Math.min(s.diskUsage, 65),
+            }
+          : s
+      )
+    );
+
+    // Operator Action Alert for Admin
+    const restoreNoticeAlert: Alert = {
+      id: `alert-restore-${Date.now()}`,
+      serverId: target.id,
+      serverName: target.name,
+      ipAddress: target.ipAddress,
+      title: `Operator Action: System Restore on ${target.name}`,
+      description: `Operator performed ${restoreScope} recovery on ${target.name} from backup snapshot (${target.lastBackupTime}). Host state operational.`,
+      metric: 'Security',
+      value: 'Restored',
+      threshold: 'DR Event',
+      severity: 'Info',
+      status: 'Active',
+      timestamp: new Date().toISOString(),
+    };
+    setAlerts((prev) => [restoreNoticeAlert, ...prev]);
+
+    addAuditLog(
+      'Backup Restore Executed',
+      `Server ${target.name} (${target.ipAddress})`,
+      `Restored ${restoreScope} from snapshot (${target.lastBackupTime}, ${target.backupSizeGB} GB).`,
+      'Success',
+      'SYSTEM',
+      { server: target.name, restoreScope },
+      { restoredAt: new Date().toISOString(), status: 'Operational' },
+      '#/backup'
+    );
+
+    addToast(
+      'Restore Completed & Admin Notified',
+      `Successfully restored ${target.name} from backup image. System state verified.`,
+      'success'
+    );
+
+    return { success: true, message: `Restoration for ${target.name} completed successfully.` };
+  };
+
+  // Edit backup schedule policy
+  const editBackupSchedule = (
+    serverId: string,
+    data: {
+      backupType: import('../types').BackupType;
+      backupLocation: string;
+      backupSchedule: string;
+      backupRetentionDays: number;
+      backupJobName?: string;
+    }
+  ) => {
+    setServers((prev) =>
+      prev.map((s) =>
+        s.id === serverId
+          ? {
+              ...s,
+              ...data,
+            }
+          : s
+      )
+    );
+
+    const target = servers.find((s) => s.id === serverId);
+
+    // Operator Action Alert for Admin
+    const policyNoticeAlert: Alert = {
+      id: `alert-policy-${Date.now()}`,
+      serverId: target?.id || serverId,
+      serverName: target?.name || serverId,
+      ipAddress: target?.ipAddress || '10.200.1.0',
+      title: `Operator Action: Backup Policy Updated (${target?.name || serverId})`,
+      description: `Operator updated backup policy schedule to "${data.backupSchedule}" with ${data.backupRetentionDays} days retention.`,
+      metric: 'Backup',
+      value: data.backupType,
+      threshold: data.backupSchedule,
+      severity: 'Info',
+      status: 'Active',
+      timestamp: new Date().toISOString(),
+    };
+    setAlerts((prev) => [policyNoticeAlert, ...prev]);
+
+    addAuditLog(
+      'Backup Policy Updated',
+      `Server ${target?.name || serverId}`,
+      `Updated backup policy: Type [${data.backupType}], Schedule [${data.backupSchedule}], Target [${data.backupLocation}], Retention [${data.backupRetentionDays} days].`,
+      'Success',
+      'UPDATE',
+      null,
+      data,
+      '#/backup'
+    );
+
+    addToast(
+      'Policy Updated & Admin Notified',
+      `Backup schedule updated for ${target?.name || serverId}. Admin notification logged.`,
+      'success'
+    );
+  };
+
+  // Delete / Revoke backup job
+  const deleteBackupJob = (serverId: string) => {
+    const target = servers.find((s) => s.id === serverId);
+    if (!target) return;
+
+    setServers((prev) =>
+      prev.map((s) =>
+        s.id === serverId
+          ? {
+              ...s,
+              backupStatus: 'Failed',
+              backupSchedule: 'Disabled (No Active Schedule)',
+            }
+          : s
+      )
+    );
+
+    // Operator Action Alert for Admin
+    const deleteNoticeAlert: Alert = {
+      id: `alert-del-${Date.now()}`,
+      serverId: target.id,
+      serverName: target.name,
+      ipAddress: target.ipAddress,
+      title: `Operator Action: Backup Schedule Disabled (${target.name})`,
+      description: `Operator disabled automated backup schedule policy for ${target.name}.`,
+      metric: 'Backup',
+      value: 'Disabled',
+      threshold: 'Schedule Revoked',
+      severity: 'Warning',
+      status: 'Active',
+      timestamp: new Date().toISOString(),
+    };
+    setAlerts((prev) => [deleteNoticeAlert, ...prev]);
+
+    addAuditLog(
+      'Backup Job Revoked',
+      `Server ${target.name}`,
+      `Disabled backup job policy for ${target.name}.`,
+      'Warning',
+      'DELETE',
+      { previousSchedule: target.backupSchedule },
+      { backupSchedule: 'Disabled' },
+      '#/backup'
+    );
+
+    addToast(
+      'Backup Policy Removed & Admin Notified',
+      `Backup job schedule disabled for ${target.name}. Admin notification logged.`,
+      'warning'
+    );
+  };
+
   return (
     <MonitoringContext.Provider
       value={{
@@ -627,6 +914,10 @@ export const MonitoringProvider: React.FC<{ children: ReactNode }> = ({ children
         addAuditLog,
         generateAgentToken,
         runPingTest,
+        triggerServerBackup,
+        restoreServerBackup,
+        editBackupSchedule,
+        deleteBackupJob,
         toggleLiveSimulation,
         dismissToast,
         addToast,
