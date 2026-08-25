@@ -1,1 +1,0 @@
-AlertsLogs.jsx
