@@ -4,6 +4,25 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ITDB Server Monitor</title>
+    <!-- Apply the persisted theme before first paint to avoid a light/dark flash.
+         Must mirror getInitialTheme() in src/context/ThemeContext.tsx. -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('govmonitor_theme');
+          if (t !== 'dark' && t !== 'light') {
+            t =
+              window.matchMedia &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches
+                ? 'dark'
+                : 'light';
+          }
+          if (t === 'dark') document.documentElement.classList.add('dark');
+        } catch (e) {
+          /* localStorage unavailable — fall back to light */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

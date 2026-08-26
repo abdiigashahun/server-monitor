@@ -17,10 +17,66 @@
     --border-main: #1F2937;
   }
 
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
   body {
     background-color: var(--bg-main);
     color: var(--text-main);
     transition: background-color 0.2s ease, color 0.2s ease;
+    /* Crisper type rendering across platforms. */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Keyboard-only focus ring. Mouse clicks stay clean; elements that define
+     their own :focus ring (inputs/selects) keep it — this only fills the gap
+     for buttons and links that would otherwise show nothing. */
+  :focus-visible {
+    outline: 2px solid #2563EB;
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+
+  ::selection {
+    background-color: rgb(37 99 235 / 0.22);
   }
 }
 
+/* Subtle, theme-aware scrollbars. */
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #CBD5E1 transparent;
+  }
+  .dark * {
+    scrollbar-color: #334155 transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: #CBD5E1;
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: #94A3B8;
+  }
+  .dark ::-webkit-scrollbar-thumb {
+    background-color: #334155;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  .dark ::-webkit-scrollbar-thumb:hover {
+    background-color: #475569;
+  }
+}

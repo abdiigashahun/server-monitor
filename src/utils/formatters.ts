@@ -1,66 +1,148 @@
-import { AlertSeverity, HealthStatus, BackupStatus } from '../types';
+import type { BadgeVariant } from '../components/Common/Badge';
+import type {
+  Criticality,
+  AlertSeverity,
+  AlertStatus,
+  BackupStatus,
+  VerificationStatus,
+  NetworkStatus,
+} from '../types';
 
-export function formatTimestamp(isoString: string): string {
+// ---------------------------------------------------------------------------
+// Time & size formatting
+// ---------------------------------------------------------------------------
+export function formatTimestamp(isoString: string | null | undefined): string {
+  if (!isoString) return '—';
   try {
     const date = new Date(isoString);
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
     const diffMinutes = Math.floor(diffMs / (1000 * 60));
     const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
+    if (diffMs < 0) return date.toLocaleString();
     if (diffMinutes < 1) return 'Just now';
-    if (diffMinutes < 60) return `${diffMinutes} mins ago`;
-    if (diffHours < 24) return `${diffHours} hours ago`;
-    return date.toLocaleDateString('en-US', {
+    if (diffMinutes < 60) return `${diffMinutes} min${diffMinutes === 1 ? '' : 's'} ago`;
+    if (diffHours < 24) return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
+    if (diffDays < 7) return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch {
+    return String(isoString);
+  }
+}
+
+export function formatDateTime(isoString: string | null | undefined): string {
+  if (!isoString) return '—';
+  try {
+    return new Date(isoString).toLocaleString('en-US', {
+      year: 'numeric',
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
     });
   } catch {
-    return isoString;
+    return String(isoString);
   }
 }
 
-export function formatBytes(bytesGB: number): string {
-  if (bytesGB < 1) {
-    return `${(bytesGB * 1024).toFixed(0)} MB`;
-  }
-  if (bytesGB >= 1000) {
-    return `${(bytesGB / 1024).toFixed(2)} TB`;
-  }
-  return `${bytesGB.toFixed(1)} GB`;
+// Bytes from the backend arrive as a decimal string (serialized BigInt).
+export function formatBytes(bytes: number | string | null | undefined): string {
+  if (bytes === null || bytes === undefined) return '—';
+  const n = typeof bytes === 'string' ? Number(bytes) : bytes;
+  if (!Number.isFinite(n)) return '—';
+  if (n === 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+  const i = Math.min(Math.floor(Math.log(n) / Math.log(1024)), units.length - 1);
+  const value = n / Math.pow(1024, i);
+  return `${value.toFixed(value >= 100 || i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
-export function getSeverityBadgeClass(severity: AlertSeverity): string {
-  switch (severity) {
-    case 'Critical':
-      return 'bg-red-100 dark:bg-red-950/80 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 font-bold';
-    case 'Warning':
-      return 'bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-bold';
-    case 'Info':
-      return 'bg-blue-100 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 font-bold';
+export function formatPercent(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '—';
+  return `${value.toFixed(value >= 10 ? 0 : 1)}%`;
+}
+
+// Compact human duration from seconds (used for uptime and staleness ages).
+export function formatDuration(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined || !Number.isFinite(seconds)) return '—';
+  const s = Math.max(0, Math.floor(seconds));
+  const days = Math.floor(s / 86400);
+  const hours = Math.floor((s % 86400) / 3600);
+  const minutes = Math.floor((s % 3600) / 60);
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m`;
+  return `${s}s`;
+}
+
+// ---------------------------------------------------------------------------
+// Enum → Badge variant mappers
+// ---------------------------------------------------------------------------
+export function criticalityVariant(c: Criticality): BadgeVariant {
+  switch (c) {
+    case 'HIGH':
+      return 'danger';
+    case 'MEDIUM':
+      return 'warning';
+    case 'LOW':
+      return 'neutral';
   }
 }
 
-export function getHealthBadgeClass(status: HealthStatus): string {
-  switch (status) {
-    case 'Operational':
-      return 'bg-green-100 dark:bg-green-950/80 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-800 font-bold';
-    case 'Warning':
-      return 'bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-bold';
-    case 'Critical':
-      return 'bg-red-100 dark:bg-red-950/80 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 font-bold';
+export function alertSeverityVariant(s: AlertSeverity): BadgeVariant {
+  return s === 'CRITICAL' ? 'danger' : 'warning';
+}
+
+export function alertStatusVariant(s: AlertStatus): BadgeVariant {
+  switch (s) {
+    case 'OPEN':
+      return 'danger';
+    case 'ACKNOWLEDGED':
+      return 'warning';
+    case 'RESOLVED':
+      return 'success';
   }
 }
 
-export function getBackupBadgeClass(status: BackupStatus): string {
-  switch (status) {
-    case 'Success':
-      return 'bg-green-100 dark:bg-green-950/80 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-800 font-bold';
-    case 'Failed':
-      return 'bg-red-100 dark:bg-red-950/80 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 font-bold';
-    case 'In Progress':
-      return 'bg-blue-100 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 font-bold animate-pulse';
+export function backupStatusVariant(s: BackupStatus): BadgeVariant {
+  switch (s) {
+    case 'SUCCESS':
+      return 'success';
+    case 'FAILED':
+      return 'danger';
+    case 'IN_PROGRESS':
+      return 'info';
   }
+}
+
+export function verificationVariant(v: VerificationStatus): BadgeVariant {
+  switch (v) {
+    case 'VERIFIED':
+      return 'success';
+    case 'PENDING':
+      return 'warning';
+    case 'NOT_REQUIRED':
+      return 'neutral';
+  }
+}
+
+export function networkStatusVariant(n: NetworkStatus): BadgeVariant {
+  switch (n) {
+    case 'UP':
+      return 'success';
+    case 'DEGRADED':
+      return 'warning';
+    case 'DOWN':
+      return 'danger';
+  }
+}
+
+// Human labels for enums that shouldn't be shown raw.
+export function titleCase(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 }

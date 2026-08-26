@@ -1,208 +1,364 @@
-export type ServerType = 'Web' | 'Database' | 'File' | 'Application' | 'DNS' | 'Mail';
-export type OS = 'Linux' | 'Windows';
-export type CriticalityLevel = 'High' | 'Medium' | 'Low';
-export type HealthStatus = 'Operational' | 'Warning' | 'Critical';
-export type BackupStatus = 'Success' | 'Failed' | 'In Progress';
-export type BackupType = 'Full' | 'Incremental';
+// Types mirroring the Server-Monitor backend contract (see FRONTEND_INTEGRATION_GUIDE.md
+// and the live Swagger at https://server-monitor-skil.onrender.com/api-docs.json).
+// The backend is the source of truth; these shapes match it exactly.
+
+// ---------------------------------------------------------------------------
+// Roles & permissions
+// ---------------------------------------------------------------------------
+export type Role = 'ADMIN' | 'OPERATOR' | 'VIEWER';
+
+export type PermissionKey =
+  | 'servers:read'
+  | 'servers:write'
+  | 'users:read'
+  | 'users:write'
+  | 'thresholds:read'
+  | 'thresholds:write'
+  | 'alerts:read'
+  | 'alerts:write'
+  | 'reports:read'
+  | 'audit:read';
+
+// Permissions arrive as a string -> boolean map. Missing keys are treated as false.
+export type Permissions = Partial<Record<PermissionKey, boolean>> & Record<string, boolean>;
+
+export interface AuthUser {
+  id: string;
+  name: string;
+  email: string;
+  role: Role;
+  permissions: Permissions;
+  createdAt?: string;
+}
+
+// Login / refresh payload (the `data` object of the envelope)
+export interface AuthPayload {
+  accessToken: string;
+  refreshToken: string;
+  user: AuthUser;
+}
+
+// ---------------------------------------------------------------------------
+// Servers
+// ---------------------------------------------------------------------------
+export type ServerOS = 'LINUX' | 'WINDOWS';
+export type Criticality = 'HIGH' | 'MEDIUM' | 'LOW';
+export type VerificationStatus = 'PENDING' | 'VERIFIED' | 'NOT_REQUIRED';
+export type Range = '7d' | '30d';
+
+export interface ServerParentRef {
+  id: string;
+  name: string;
+  ipOrHostname: string;
+  type: string;
+  criticality: Criticality;
+  verificationStatus: VerificationStatus;
+}
 
 export interface Server {
   id: string;
   name: string;
-  ipAddress: string;
-  type: ServerType;
-  os: OS;
+  ipOrHostname: string;
+  type: string;
+  os: ServerOS;
   location: string;
   department: string;
-  criticality: CriticalityLevel;
+  criticality: Criticality;
   owner: string;
-  cpuUsage: number; // percentage
-  memoryUsage: number; // percentage
-  diskUsage: number; // percentage
-  uptimeDays: number;
-  lastBootTime: string;
-  networkStatus: 'Online' | 'Degraded' | 'Offline';
-  healthStatus: HealthStatus;
-  agentToken: string;
-  lastBackupTime: string;
-  backupStatus: BackupStatus;
-  backupType: BackupType;
-  backupSizeGB: number;
-  backupLocation: string;
+  parentServerId: string | null;
+  expectsAgent: boolean;
+  verificationStatus: VerificationStatus;
+  verifiedAt: string | null;
+  isGroup: boolean;
+  childCount: number;
+  verifiedChildCount?: number;
+  parent?: ServerParentRef | null;
+  children?: Server[];
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
 }
 
-export type AlertSeverity = 'Critical' | 'Warning' | 'Info';
-export type AlertStatus = 'Active' | 'Acknowledged' | 'Resolved';
+export interface CreateServerInput {
+  name: string;
+  ipOrHostname: string;
+  type: string;
+  os: ServerOS;
+  location: string;
+  department: string;
+  criticality: Criticality;
+  owner: string;
+  parentServerId?: string | null;
+  expectsAgent?: boolean;
+}
+
+export type UpdateServerInput = Partial<CreateServerInput>;
+
+export interface ServerListFilters {
+  name?: string;
+  location?: string;
+  department?: string;
+  criticality?: Criticality;
+  os?: ServerOS;
+  parentServerId?: string;
+  rootsOnly?: boolean;
+  verificationStatus?: VerificationStatus;
+  expectsAgent?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Server health & backups (from /servers/{id}/health and /backups)
+// ---------------------------------------------------------------------------
+export type NetworkStatus = 'UP' | 'DOWN' | 'DEGRADED';
+
+export interface HealthLog {
+  id: string;
+  serverId: string;
+  ipOrHostname: string;
+  cpuUsage: number;
+  memoryUsage: number;
+  diskUsage: number;
+  uptimeSeconds: number;
+  lastBootAt: string;
+  networkStatus: NetworkStatus;
+  recordedAt: string;
+}
+
+export interface GroupMetricSummary {
+  avg: number | null;
+  min: number | null;
+  max: number | null;
+}
+
+export interface HealthGroupSummary {
+  childCount: number;
+  reportingChildCount: number;
+  openAlertCount: number;
+  cpu: GroupMetricSummary;
+  memory: GroupMetricSummary;
+  disk: GroupMetricSummary;
+  networkDownCount: number;
+}
+
+export interface GroupHistoryPoint {
+  bucketStart: string;
+  sampleCount: number;
+  cpuUsage: number | null;
+  memoryUsage: number | null;
+  diskUsage: number | null;
+}
+
+export interface HealthChild {
+  serverId: string;
+  name: string;
+  ipOrHostname: string;
+  criticality: Criticality;
+  department: string;
+  latest: HealthLog | null;
+}
+
+export interface ServerHealth {
+  serverId: string;
+  ipOrHostname: string;
+  range: Range;
+  isGroup: boolean;
+  parentServerId: string | null;
+  latest: HealthLog | null;
+  history: HealthLog[]; // this server's own samples, oldest first
+  groupSummary: HealthGroupSummary | null;
+  children: HealthChild[];
+  groupHistory: GroupHistoryPoint[]; // hourly averages
+}
+
+export type BackupStatus = 'SUCCESS' | 'FAILED' | 'IN_PROGRESS';
+export type BackupType = 'FULL' | 'INCREMENTAL';
+
+export interface BackupLog {
+  id: string;
+  serverId: string;
+  status: BackupStatus;
+  backupType: BackupType;
+  location: string;
+  sizeBytes: string; // serialized BigInt as a decimal string
+  startedAt: string;
+  completedAt: string | null;
+}
+
+export interface BackupStaleness {
+  lastSuccessAt: string | null;
+  ageSeconds: number | null;
+  staleAfterHours: number;
+  isStale: boolean;
+}
+
+export interface BackupChild {
+  serverId: string;
+  name: string;
+  ipOrHostname: string;
+  department: string;
+  latest: BackupLog | null;
+  staleness: BackupStaleness;
+}
+
+export interface ServerBackups {
+  serverId: string;
+  ipOrHostname: string;
+  range: Range;
+  isGroup: boolean;
+  parentServerId: string | null;
+  latest: BackupLog | null;
+  history: BackupLog[];
+  staleness: BackupStaleness;
+  groupSummary: { childCount: number; staleChildCount: number } | null;
+  children: BackupChild[];
+}
+
+// ---------------------------------------------------------------------------
+// Alerts
+// ---------------------------------------------------------------------------
+export type AlertType = 'DISK' | 'CPU' | 'MEMORY' | 'BACKUP' | 'DOWN';
+export type AlertSeverity = 'WARNING' | 'CRITICAL';
+export type AlertStatus = 'OPEN' | 'ACKNOWLEDGED' | 'RESOLVED';
+
+export interface AlertServerRef {
+  id: string;
+  name: string;
+  ipOrHostname: string;
+  department: string;
+  criticality: Criticality;
+}
 
 export interface Alert {
   id: string;
   serverId: string;
-  serverName: string;
-  ipAddress: string;
-  title: string;
-  description: string;
-  metric: 'Disk' | 'CPU' | 'Memory' | 'Backup' | 'Network' | 'Security';
-  value: string;
-  threshold: string;
+  type: AlertType;
   severity: AlertSeverity;
+  message: string;
   status: AlertStatus;
-  timestamp: string;
-  acknowledgedBy?: string;
-  acknowledgedAt?: string;
-  resolvedAt?: string;
+  createdAt: string;
+  resolvedAt: string | null;
+  thresholdId: string | null;
+  server: AlertServerRef | null;
 }
 
-export type UserRole = 'Admin' | 'Operator' | 'User';
-
-export interface RolePermissions {
-  canAddServer: boolean;
-  canEditServer: boolean;
-  canDeleteServer: boolean;
-  canAckAlerts: boolean;
-  canResolveAlerts: boolean;
-  canEditThresholds: boolean;
-  canManageTokens: boolean;
-  canTriggerFailover: boolean;
-  canToggleDcMaintenance: boolean;
-  canViewAuditLogs: boolean;
-  canManageUsers: boolean;
-  canExportReports: boolean;
+export interface AlertListFilters {
+  serverId?: string;
+  status?: AlertStatus;
+  severity?: AlertSeverity;
+  type?: AlertType;
+  from?: string;
+  to?: string;
+  page?: number;
+  limit?: number;
 }
 
-export interface AuthUser {
+// ---------------------------------------------------------------------------
+// Thresholds
+// ---------------------------------------------------------------------------
+export type ThresholdMetric = 'DISK' | 'CPU' | 'MEMORY' | 'BACKUP_AGE_HOURS';
+export type ThresholdScope = 'GLOBAL' | 'SERVER';
+
+export interface ThresholdServerRef {
   id: string;
-  username: string;
+  name: string;
+  ipOrHostname: string;
+  department: string;
+}
+
+export interface Threshold {
+  id: string;
+  metric: ThresholdMetric;
+  warningValue: number;
+  criticalValue: number;
+  scope: ThresholdScope;
+  serverId: string | null;
+  server: ThresholdServerRef | null;
+}
+
+export interface CreateThresholdInput {
+  metric: ThresholdMetric;
+  warningValue: number;
+  criticalValue: number;
+  scope: ThresholdScope;
+  serverId?: string;
+}
+
+export interface UpdateThresholdInput {
+  warningValue?: number;
+  criticalValue?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Users (ADMIN)
+// ---------------------------------------------------------------------------
+export interface User {
+  id: string;
   name: string;
   email: string;
-  role: UserRole;
-  roleTitle: string;
-  department: string;
-  phone: string;
-  avatarUrl: string;
-  twoFactorEnabled: boolean;
-  lastLogin: string;
-  ipAddress?: string;
-  permissions: RolePermissions;
+  role: Role;
+  permissions: Permissions;
+  createdAt?: string;
 }
 
-export interface UserSession {
-  sessionId: string;
-  userId: string;
-  username: string;
+export interface CreateUserInput {
   name: string;
-  role: UserRole;
-  ipAddress: string;
-  userAgent: string;
-  loginTime: string;
-  lastActive: string;
-  currentPage: string;
-  status: 'Active' | 'Idle' | 'Terminated';
+  email: string;
+  password: string;
+  role: Role;
 }
 
-export type AuditChangeType = 'PAGE_VISIT' | 'CREATE' | 'UPDATE' | 'DELETE' | 'SECURITY' | 'ALERT_ACTION' | 'AUTH' | 'SYSTEM';
+export interface UpdateUserInput {
+  name?: string;
+  email?: string;
+  password?: string;
+  role?: Role;
+}
+
+// ---------------------------------------------------------------------------
+// Audit logs (ADMIN)
+// ---------------------------------------------------------------------------
+export interface AuditUserRef {
+  id: string;
+  name: string;
+  email: string;
+}
 
 export interface AuditLog {
   id: string;
-  user: string;
-  role: UserRole | string;
+  userId: string | null;
   action: string;
-  resource: string;
-  ipAddress: string;
-  timestamp: string;
-  status: 'Success' | 'Denied' | 'Warning';
-  details: string;
-  changeType?: AuditChangeType;
-  targetRoute?: string;
-  previousState?: Record<string, any> | string;
-  newState?: Record<string, any> | string;
-  deviceInfo?: string;
+  targetType: string;
+  targetId: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  user: AuditUserRef | null;
 }
 
-export interface SystemLog {
-  id: string;
-  level: 'INFO' | 'WARN' | 'ERROR' | 'DEBUG';
-  component: 'AgentCollector' | 'BackupEngine' | 'AlertManager' | 'AuthService' | 'PortalAPI';
-  serverId?: string;
-  serverName?: string;
-  message: string;
-  timestamp: string;
+export interface AuditListFilters {
+  userId?: string;
+  action?: string;
+  targetType?: string;
+  targetId?: string;
+  from?: string;
+  to?: string;
+  page?: number;
+  limit?: number;
 }
 
-export interface ThresholdSettings {
-  diskUsageLimitPct: number; // default 85%
-  cpuUsageLimitPct: number;  // default 80%
-  memoryUsageLimitPct: number; // default 85%
-  backupFailureTimeoutHours: number; // default 24h
-  emailAlertsEnabled: boolean;
-  slackAlertsEnabled: boolean;
-  smsAlertsEnabled: boolean;
-  alertRecipientEmails: string[];
-  pingIntervalSeconds: number;
-  ipRestrictionEnabled: boolean;
-  allowedSubnet: string;
+// ---------------------------------------------------------------------------
+// Reports
+// ---------------------------------------------------------------------------
+export type ReportRange = 'daily' | 'weekly' | 'monthly';
+export type ReportFormat = 'pdf' | 'excel';
+export type ReportKind = 'health' | 'backups';
+
+// ---------------------------------------------------------------------------
+// Shared
+// ---------------------------------------------------------------------------
+export interface Pagination {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
 }
-
-export interface UserProfile {
-  id: string;
-  name: string;
-  email: string;
-  role: 'Super Admin' | 'System Administrator' | 'Auditor' | 'Read Only Operator';
-  department: string;
-  phone: string;
-  avatarUrl: string;
-  twoFactorEnabled: boolean;
-  lastLogin: string;
-}
-
-export interface ActivityItem {
-  id: string;
-  type: 'ALERT' | 'BACKUP' | 'SERVER' | 'USER' | 'SYSTEM';
-  title: string;
-  description: string;
-  timestamp: string;
-  severity?: AlertSeverity;
-  serverName?: string;
-}
-
-export interface TelemetryPoint {
-  time: string;
-  cpuAverage: number;
-  cpuHighCritical: number;
-  memoryAverage: number;
-  diskAverage: number;
-}
-
-export interface BackupHistoryPoint {
-  date: string;
-  successful: number;
-  failed: number;
-  inProgress: number;
-  totalSizeTB: number;
-}
-
-export type DataCenterStatus = 'Healthy' | 'Warning' | 'Critical' | 'Maintenance';
-
-export interface DataCenter {
-  id: string; // e.g. 'DC-01'
-  code: string; // e.g. 'ADD-01'
-  name: string; // e.g. 'Addis Ababa Central DC'
-  city: string; // e.g. 'Addis Ababa'
-  region: string; // e.g. 'Central Hub'
-  tier: 'Tier III' | 'Tier IV';
-  status: DataCenterStatus;
-  primaryRole: string; // e.g. 'Core Government Hub & Portal'
-  serverCount: number;
-  rackCount: number;
-  totalCapacityKw: number;
-  currentPowerUsageKw: number;
-  pue: number; // Power Usage Effectiveness e.g. 1.22
-  temperatureC: number; // e.g. 19.8
-  humidityPct: number; // e.g. 46
-  networkLatencyMs: number; // e.g. 1.8
-  bandwidthGbps: number; // e.g. 100
-  backupGeneratorStatus: 'Standby Ready' | 'Active Testing' | 'Maintenance';
-  activeAlertsCount: number;
-  coolingStatus: 'Optimal' | 'Degraded' | 'Normal';
-  securityZone: 'Top Secret Level 4' | 'Restricted Level 3' | 'Standard Level 2';
-  ipSubnet: string;
-}
-

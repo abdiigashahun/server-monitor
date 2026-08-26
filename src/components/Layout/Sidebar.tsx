@@ -1,152 +1,133 @@
 import React from 'react';
-import {
-  LayoutDashboard,
-  Building2,
-  Server,
-  Database,
-  BellRing,
-  BarChart3,
-  Settings,
-  LogOut,
-  Shield,
-} from 'lucide-react';
-import { useMonitoring } from '../../context/MonitoringContext';
+import { LogOut, X } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useApi } from '../../hooks/useApi';
+import * as alertsApi from '../../api/alerts';
 import { ITDBLogo } from '../Common/ITDBLogo';
+import { NAV_ITEMS } from '../../navigation';
+import { navigate } from '../../router';
 
 interface SidebarProps {
   activeTab: string;
-  setActiveTab: (tab: string) => void;
+  open: boolean;
+  onClose: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => {
-  const { alerts } = useMonitoring();
-  const { user, logout } = useAuth();
-  const activeAlertsCount = alerts.filter((a) => a.status === 'Active').length;
+function initials(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase() ?? '')
+    .join('');
+}
 
-  const coreModules = [
-    { id: 'dashboard', label: 'Dashboard Overview', icon: LayoutDashboard },
-    {
-      id: 'datacenters',
-      label: 'Data Centers (10)',
-      icon: Building2,
-      badge: '10 DCs',
-      badgeColor: 'bg-blue-900 text-blue-300',
-    },
-    { id: 'inventory', label: 'Server Inventory', icon: Server },
-    { id: 'backup', label: 'Backup Center', icon: Database },
-    {
-      id: 'alerts-logs',
-      label: 'Alerts & Logs',
-      icon: BellRing,
-      badge: activeAlertsCount > 0 ? activeAlertsCount : undefined,
-      badgeColor: 'bg-red-100 text-red-700',
-    },
-    { id: 'reports', label: 'Reports & Analytics', icon: BarChart3 },
-  ];
+export const Sidebar: React.FC<SidebarProps> = ({ activeTab, open, onClose }) => {
+  const { user, logout, can } = useAuth();
 
-  const adminModules = [
-    {
-      id: 'activity',
-      label: 'User Activity & Changes',
-      icon: Shield,
-      badge: 'Who/What',
-      badgeColor: 'bg-emerald-900 text-emerald-300',
-    },
-    { id: 'settings', label: 'System Settings', icon: Settings },
-  ];
+  const canReadAlerts = can('alerts:read');
+  const { data: alertData } = useApi(
+    () => (canReadAlerts ? alertsApi.list({ status: 'OPEN', limit: 1 }) : Promise.resolve(null)),
+    [canReadAlerts],
+  );
+  const openAlerts = alertData?.pagination.total ?? 0;
+
+  const visible = NAV_ITEMS.filter((item) => !item.permission || can(item.permission));
+  const core = visible.filter((i) => i.section === 'core');
+  const admin = visible.filter((i) => i.section === 'admin');
+
+  const renderItem = (item: (typeof NAV_ITEMS)[number]) => {
+    const Icon = item.icon;
+    const isActive = activeTab === item.id;
+    const badge = item.id === 'alerts' && openAlerts > 0 ? openAlerts : undefined;
+    return (
+      <button
+        key={item.id}
+        onClick={() => {
+          navigate(item.id);
+          onClose();
+        }}
+        className={`w-full flex items-center justify-between px-6 py-2.5 text-sm font-medium transition-colors cursor-pointer ${
+          isActive ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-[#1E293B] hover:text-white'
+        }`}
+      >
+        <div className="flex items-center gap-3">
+          <Icon className="w-4 h-4" />
+          <span>{item.label}</span>
+        </div>
+        {badge !== undefined && (
+          <span className="px-2 py-0.5 text-[10px] font-bold rounded uppercase bg-red-100 text-red-700">
+            {badge}
+          </span>
+        )}
+      </button>
+    );
+  };
 
   return (
-    <aside className="w-64 bg-[#111827] dark:bg-[#0B0F17] text-white flex flex-col border-r border-gray-800 dark:border-gray-800/80 shrink-0 min-h-screen transition-colors duration-200">
-      {/* Brand Header with ITDB Logo */}
-      <div className="p-5 border-b border-gray-800 dark:border-gray-800/80">
-        <ITDBLogo size="md" showSubtext={true} />
-      </div>
+    <>
+      {/* Backdrop — only below lg, when the drawer is open. */}
+      <div
+        className={`fixed inset-0 z-40 bg-black/50 lg:hidden transition-opacity duration-200 ${
+          open ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}
+        onClick={onClose}
+        aria-hidden="true"
+      />
 
-      {/* Navigation Menu */}
-      <nav className="flex-1 py-4 overflow-y-auto">
-        <div className="px-4 mb-2 text-[10px] uppercase text-gray-500 font-bold tracking-widest">
-          Core Modules
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 w-64 bg-[#111827] dark:bg-[#0B0F17] text-white flex flex-col border-r border-gray-800 dark:border-gray-800/80 transform transition-transform duration-200 lg:static lg:z-auto lg:translate-x-0 lg:shrink-0 ${
+          open ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <div className="p-5 border-b border-gray-800 dark:border-gray-800/80 flex items-center justify-between">
+          <ITDBLogo size="md" showSubtext={true} />
+          <button
+            onClick={onClose}
+            className="lg:hidden p-1 text-gray-400 hover:text-white transition-colors cursor-pointer"
+            aria-label="Close menu"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
-        {coreModules.map((item) => {
-          const Icon = item.icon;
-          const isActive = activeTab === item.id;
-
-          return (
-            <button
-              key={item.id}
-              onClick={() => setActiveTab(item.id)}
-              className={`w-full flex items-center justify-between px-6 py-2.5 text-sm font-medium transition-colors cursor-pointer ${
-                isActive
-                  ? 'bg-blue-600 text-white'
-                  : 'text-gray-400 hover:bg-[#1E293B] hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <Icon className="w-4 h-4" />
-                <span>{item.label}</span>
-              </div>
-
-              {item.badge !== undefined && (
-                <span className={`px-2 py-0.5 text-[10px] font-bold rounded uppercase ${item.badgeColor || 'bg-red-100 text-red-700'}`}>
-                  {item.badge}
-                </span>
-              )}
-            </button>
-          );
-        })}
-
-        <div className="px-4 mt-6 mb-2 text-[10px] uppercase text-gray-500 font-bold tracking-widest">
-          Administration
-        </div>
-
-        {adminModules.map((item) => {
-          const Icon = item.icon;
-          const isActive = activeTab === item.id;
-
-          return (
-            <button
-              key={item.id}
-              onClick={() => setActiveTab(item.id)}
-              className={`w-full flex items-center justify-between px-6 py-2.5 text-sm font-medium transition-colors cursor-pointer ${
-                isActive
-                  ? 'bg-blue-600 text-white'
-                  : 'text-gray-400 hover:bg-[#1E293B] hover:text-white'
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <Icon className="w-4 h-4" />
-                <span>{item.label}</span>
-              </div>
-            </button>
-          );
-        })}
-      </nav>
-
-      {/* Footer System Info & Profile */}
-      <div className="p-3.5 mt-auto border-t border-gray-800/80 bg-[#0B0F17] flex items-center justify-between">
-        <div className="flex items-center space-x-2.5 overflow-hidden">
-          <img
-            src={user?.avatarUrl || 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=200'}
-            alt={user?.name || 'User'}
-            className="w-8 h-8 rounded-sm object-cover border border-gray-700 shrink-0"
-          />
-          <div className="overflow-hidden text-left">
-            <p className="text-xs font-semibold truncate text-white">{user?.name || 'Admin'}</p>
-            <p className="text-[10px] text-gray-400 font-mono truncate">{user?.role || 'Admin'} • {user?.email || 'admin@itdb.gov.et'}</p>
+        <nav className="flex-1 py-4 overflow-y-auto">
+          <div className="px-4 mb-2 text-[10px] uppercase text-gray-500 font-bold tracking-widest">
+            Core Modules
           </div>
-        </div>
+          {core.map(renderItem)}
 
-        <button
-          onClick={logout}
-          title="Sign Out / Lock Portal"
-          className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-gray-800 rounded transition-colors cursor-pointer shrink-0 ml-1"
-        >
-          <LogOut className="w-4 h-4" />
-        </button>
-      </div>
-    </aside>
+          {admin.length > 0 && (
+            <>
+              <div className="px-4 mt-6 mb-2 text-[10px] uppercase text-gray-500 font-bold tracking-widest">
+                Administration
+              </div>
+              {admin.map(renderItem)}
+            </>
+          )}
+        </nav>
+
+        <div className="p-3.5 mt-auto border-t border-gray-800/80 bg-[#0B0F17] flex items-center justify-between">
+          <div className="flex items-center space-x-2.5 overflow-hidden">
+            <div className="w-8 h-8 rounded-sm bg-blue-600 flex items-center justify-center text-xs font-bold text-white shrink-0">
+              {user ? initials(user.name) : '—'}
+            </div>
+            <div className="overflow-hidden text-left">
+              <p className="text-xs font-semibold truncate text-white">{user?.name}</p>
+              <p className="text-[10px] text-gray-400 font-mono truncate">
+                {user?.role} • {user?.email}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => void logout()}
+            title="Sign out"
+            className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-gray-800 rounded transition-colors cursor-pointer shrink-0 ml-1"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
+        </div>
+      </aside>
+    </>
   );
 };
-
