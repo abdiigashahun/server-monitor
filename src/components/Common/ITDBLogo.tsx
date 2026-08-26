@@ -90,7 +90,7 @@ export const ITDBLogo: React.FC<ITDBLogoProps> = ({
             ITDB <span className="text-gray-900 dark:text-white font-bold">Server Monitor</span>
           </div>
           <span className="text-[9px] font-semibold text-gray-500 dark:text-gray-400 tracking-widest uppercase mt-0.5">
-            Innovation & Technology Bureau
+            Innovation and Technology Bureau
           </span>
         </div>
       )}

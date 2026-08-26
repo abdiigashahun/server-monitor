@@ -53,10 +53,10 @@ export const SettingsPage: React.FC = () => {
 
         <button
           onClick={() => setActiveSection('SECURITY')}
-          className={`px-3 py-1.5 rounded-sm font-bold text-xs flex items-center gap-1.5 transition-all ${
+          className={`px-3 py-1.5 rounded-sm font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer ${
             activeSection === 'SECURITY'
               ? 'bg-blue-600 text-white shadow-sm'
-              : 'bg-white text-gray-600 hover:text-gray-900 border border-gray-200'
+              : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white border border-gray-200 dark:border-gray-700'
           }`}
         >
           <Shield className="w-4 h-4" />
@@ -65,10 +65,10 @@ export const SettingsPage: React.FC = () => {
 
         <button
           onClick={() => setActiveSection('TOKENS')}
-          className={`px-3 py-1.5 rounded-sm font-bold text-xs flex items-center gap-1.5 transition-all ${
+          className={`px-3 py-1.5 rounded-sm font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer ${
             activeSection === 'TOKENS'
               ? 'bg-blue-600 text-white shadow-sm'
-              : 'bg-white text-gray-600 hover:text-gray-900 border border-gray-200'
+              : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white border border-gray-200 dark:border-gray-700'
           }`}
         >
           <Key className="w-4 h-4" />

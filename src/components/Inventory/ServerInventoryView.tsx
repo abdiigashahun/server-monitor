@@ -1,58 +1,69 @@
 import React, { useState } from 'react';
 import { useMonitoring } from '../../context/MonitoringContext';
+import { useAuth } from '../../context/AuthContext';
 import { getHealthBadgeClass } from '../../utils/formatters';
-import { Server, Search, Plus, Edit, Trash2, X, Check, Activity } from 'lucide-react';
-import { Server as ServerType, ServerType as SType, OS, CriticalityLevel, UserRole } from '../../types';
+import { Server, Search, Plus, Edit, Trash2, X, Check, Activity, Shield, Lock, Eye } from 'lucide-react';
+import { Server as ServerType, ServerType as SType, OS, CriticalityLevel } from '../../types';
 
-interface ServerInventoryViewProps {
-  userRole?: UserRole;
-}
+export const ServerInventoryView: React.FC = () => {
+  const {
+    servers,
+    addServer,
+    deleteServer,
+    updateServer,
+    addAuditLog,
+    runPingTest,
+    dataCenters,
+    selectedDataCenter,
+  } = useMonitoring();
 
-export const ServerInventoryView: React.FC<ServerInventoryViewProps> = ({ userRole = 'Admin' }) => {
-  const { servers, addServer, updateServer, deleteServer, runPingTest, addAuditLog } = useMonitoring();
+  const { user, hasPermission } = useAuth();
+  const canManageServers = user?.role === 'Admin' || hasPermission('canAddServer');
+
+  // Search & Filter State
   const [search, setSearch] = useState('');
   const [selectedOS, setSelectedOS] = useState('ALL');
-
-  // STRICT ROLE CONTROL: Only Admin has mutation rights (Add, Edit, Delete).
-  const isAdmin = userRole === 'Admin';
-  const isReadOnly = !isAdmin;
+  const [selectedDc, setSelectedDc] = useState('ALL');
 
   // Modal State
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingServer, setEditingServer] = useState<ServerType | null>(null);
   const [deletingServerId, setDeletingServerId] = useState<string | null>(null);
 
-  // Form Initial State
-  const initialFormState = {
+  // Form State
+  const [formData, setFormData] = useState({
     name: '',
     ipAddress: '',
     type: 'Application' as SType,
     os: 'Linux' as OS,
-    department: 'ITDB Central',
-    location: 'Central DC - Rack 04',
+    department: 'Ministry of Innovation & Tech',
+    location: 'DC-01 - Addis Ababa Central DC',
     criticality: 'Medium' as CriticalityLevel,
     owner: 'SysAdmin Group',
-  };
-
-  const [formData, setFormData] = useState(initialFormState);
+  });
 
   const resetForm = () => {
-    setFormData(initialFormState);
-  };
-
-  const handleCloseModal = () => {
-    setIsAddModalOpen(false);
-    setEditingServer(null);
-    resetForm();
+    setFormData({
+      name: '',
+      ipAddress: '',
+      type: 'Application',
+      os: 'Linux',
+      department: 'Ministry of Innovation & Tech',
+      location: 'DC-01 - Addis Ababa Central DC',
+      criticality: 'Medium',
+      owner: 'SysAdmin Group',
+    });
   };
 
   const handleOpenAddModal = () => {
+    if (!canManageServers) return;
     resetForm();
     setIsAddModalOpen(true);
-    addAuditLog('Open Modal', 'Server Inventory', `[${userRole}] Opened Add New Server dialog`);
+    addAuditLog('Open Modal', 'Server Inventory', 'Opened Add New Server dialog');
   };
 
   const handleOpenEditModal = (server: ServerType) => {
+    if (!canManageServers) return;
     setEditingServer(server);
     setFormData({
       name: server.name,
@@ -64,101 +75,144 @@ export const ServerInventoryView: React.FC<ServerInventoryViewProps> = ({ userRo
       criticality: server.criticality,
       owner: server.owner,
     });
-    addAuditLog('Open Modal', 'Server Inventory', `[${userRole}] Opened Edit dialog for ${server.name}`);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (isReadOnly || !formData.name.trim() || !formData.ipAddress.trim()) return;
+    if (!canManageServers) return;
+    if (!formData.name.trim() || !formData.ipAddress.trim()) return;
 
     if (editingServer) {
       updateServer(editingServer.id, formData);
-      addAuditLog('Update Node', 'Server Inventory', `[${userRole}] Updated infrastructure node: ${formData.name}`);
+      setEditingServer(null);
     } else {
       addServer(formData);
-      addAuditLog('Add Node', 'Server Inventory', `[${userRole}] Registered new infrastructure node: ${formData.name}`);
+      setIsAddModalOpen(false);
     }
-    handleCloseModal();
+    resetForm();
   };
 
   const handleDeleteConfirm = (id: string) => {
-    if (isReadOnly) return;
-    const targetServer = servers.find((s) => s.id === id);
+    if (!canManageServers) return;
     deleteServer(id);
-    addAuditLog('Delete Node', 'Server Inventory', `[${userRole}] Removed infrastructure node: ${targetServer?.name || id}`);
     setDeletingServerId(null);
   };
 
+  const activeDcFilter = selectedDc !== 'ALL' ? selectedDc : selectedDataCenter;
+
   const filteredServers = servers.filter((s) => {
-    const query = search.toLowerCase();
     const matchesSearch =
-      s.name.toLowerCase().includes(query) ||
+      s.name.toLowerCase().includes(search.toLowerCase()) ||
       s.ipAddress.includes(search) ||
-      s.department.toLowerCase().includes(query) ||
-      s.owner.toLowerCase().includes(query);
+      s.department.toLowerCase().includes(search.toLowerCase()) ||
+      s.location.toLowerCase().includes(search.toLowerCase()) ||
+      s.owner.toLowerCase().includes(search.toLowerCase());
     const matchesOS = selectedOS === 'ALL' || s.os === selectedOS;
-    return matchesSearch && matchesOS;
+    const matchesDc =
+      activeDcFilter === 'ALL' ||
+      s.location.includes(activeDcFilter) ||
+      (dataCenters.find((d) => d.id === activeDcFilter)?.name && s.location.includes(dataCenters.find((d) => d.id === activeDcFilter)!.name));
+
+    return matchesSearch && matchesOS && matchesDc;
   });
 
   return (
     <div className="space-y-4 text-xs text-[#1A1A1A] dark:text-[#F9FAFB] transition-colors duration-200">
       {/* Header Bar */}
-      <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 rounded-sm p-4 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+      <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 rounded-sm p-4 shadow-sm flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="p-2.5 rounded-sm bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
             <Server className="w-5 h-5" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="font-bold text-sm uppercase tracking-wider text-gray-900 dark:text-white">
-                Server Inventory Management
-              </h2>
+              <h2 className="font-bold text-sm uppercase tracking-wider text-gray-900 dark:text-white">Server Inventory Management</h2>
+              {!canManageServers && (
+                <span className="px-2 py-0.5 rounded-xs text-[10px] font-bold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 uppercase border border-amber-200 dark:border-amber-800 flex items-center gap-1">
+                  <Lock className="w-3 h-3" /> Read-Only
+                </span>
+              )}
             </div>
             <p className="text-gray-500 dark:text-gray-400 text-xs mt-0.5">
-              Add, edit, remove, and monitor critical government Linux and Windows infrastructure
+              {canManageServers
+                ? 'Add, edit, remove, and monitor critical infrastructure across all 10 Data Centers'
+                : 'Live server telemetry, network health, and diagnostic ping monitoring (Server modifications restricted to Admin)'}
             </p>
           </div>
         </div>
 
-        {!isReadOnly && (
+        {canManageServers ? (
           <button
             onClick={handleOpenAddModal}
             className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-sm flex items-center gap-1.5 transition-colors shadow-xs shrink-0 cursor-pointer"
           >
             <Plus className="w-4 h-4" /> Add New Server
           </button>
+        ) : (
+          <div className="px-3 py-1.5 bg-gray-100 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 rounded-sm text-xs font-mono flex items-center gap-1.5">
+            <Shield className="w-3.5 h-3.5 text-amber-500" />
+            <span>Admin Required to Add Server</span>
+          </div>
         )}
       </div>
 
-      {/* Filter and Search Controls */}
-      <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 rounded-sm p-3 flex flex-col sm:flex-row gap-3 items-center justify-between">
+      {/* Non-Admin Notice Banner */}
+      {!canManageServers && (
+        <div className="bg-amber-50/90 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 text-amber-900 dark:text-amber-200 px-4 py-2.5 rounded-sm flex items-center gap-2.5 text-xs">
+          <Eye className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+          <span>
+            <strong>Read-Only Mode Active:</strong> You are logged in as <strong>{user?.role || 'Operator'}</strong> ({user?.name}). Server creation, editing, and de-registration are restricted exclusively to Super Administrators.
+          </span>
+        </div>
+      )}
+
+      {/* Filter and Search controls */}
+      <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 rounded-sm p-3 flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
         <div className="relative flex-1 w-full">
           <Search className="w-4 h-4 text-gray-400 dark:text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by server name, IP address, department, owner..."
+            placeholder="Search by server name, IP address, department, location, owner..."
             className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-sm pl-9 pr-3 py-1.5 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:border-blue-600"
           />
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="text-gray-600 dark:text-gray-400 font-bold">OS Type:</span>
-          <select
-            value={selectedOS}
-            onChange={(e) => setSelectedOS(e.target.value)}
-            className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-sm px-2.5 py-1.5 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-blue-600 cursor-pointer"
-          >
-            <option value="ALL">All Operating Systems</option>
-            <option value="Linux">Linux (psutil)</option>
-            <option value="Windows">Windows (WMI / PowerShell)</option>
-          </select>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <span className="text-gray-600 dark:text-gray-400 font-bold">Data Center:</span>
+            <select
+              value={selectedDc}
+              onChange={(e) => setSelectedDc(e.target.value)}
+              className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-sm px-2.5 py-1.5 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-blue-600 cursor-pointer font-mono"
+            >
+              <option value="ALL">All 10 Facilities</option>
+              {dataCenters.map((dc) => (
+                <option key={dc.id} value={dc.id}>
+                  {dc.id} - {dc.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <span className="text-gray-600 dark:text-gray-400 font-bold">OS Type:</span>
+            <select
+              value={selectedOS}
+              onChange={(e) => setSelectedOS(e.target.value)}
+              className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-sm px-2.5 py-1.5 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-blue-600 cursor-pointer"
+            >
+              <option value="ALL">All Operating Systems</option>
+              <option value="Linux">Linux (psutil)</option>
+              <option value="Windows">Windows (WMI / PowerShell)</option>
+            </select>
+          </div>
         </div>
       </div>
 
       {/* Server Table */}
-      <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 rounded-sm p-4 shadow-xs">
+      <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 rounded-sm p-4 shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
@@ -208,18 +262,16 @@ export const ServerInventoryView: React.FC<ServerInventoryViewProps> = ({ userRo
                       <div className="flex items-center justify-end gap-1.5">
                         <button
                           onClick={() => runPingTest(s.id)}
-                          className="px-2 py-1 text-[10px] bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded-sm font-bold cursor-pointer flex items-center gap-1"
+                          className="px-2 py-1 text-[10px] bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded-sm font-bold cursor-pointer"
                         >
-                          <Activity className="w-3 h-3" /> Ping
+                          Ping
                         </button>
-
-                        {!isReadOnly && (
+                        {canManageServers && (
                           <>
                             <button
                               onClick={() => handleOpenEditModal(s)}
                               className="p-1 text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-sm transition-colors cursor-pointer"
                               title="Edit Server Details"
-                              aria-label={`Edit ${s.name}`}
                             >
                               <Edit className="w-3.5 h-3.5" />
                             </button>
@@ -227,7 +279,6 @@ export const ServerInventoryView: React.FC<ServerInventoryViewProps> = ({ userRo
                               onClick={() => setDeletingServerId(s.id)}
                               className="p-1 text-gray-600 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/50 rounded-sm transition-colors cursor-pointer"
                               title="Delete Server"
-                              aria-label={`Delete ${s.name}`}
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -244,25 +295,22 @@ export const ServerInventoryView: React.FC<ServerInventoryViewProps> = ({ userRo
       </div>
 
       {/* Add / Edit Server Modal */}
-      {!isReadOnly && (isAddModalOpen || editingServer) && (
-        <div 
-          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="modal-server-title"
-        >
+      {(isAddModalOpen || editingServer) && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 rounded-sm shadow-xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-150">
             <div className="p-4 bg-gray-50 dark:bg-gray-800/80 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Server className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                <h3 id="modal-server-title" className="font-bold text-sm text-gray-900 dark:text-white uppercase tracking-wider">
-                  {editingServer ? `Edit Server (${editingServer.name})` : 'Register New Infrastructure Server'}
+                <h3 className="font-bold text-sm text-gray-900 dark:text-white uppercase tracking-wider">
+                  {editingServer ? `Edit Server (${editingServer.name})` : 'Register New Government Server'}
                 </h3>
               </div>
               <button
-                onClick={handleCloseModal}
+                onClick={() => {
+                  setIsAddModalOpen(false);
+                  setEditingServer(null);
+                }}
                 className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 cursor-pointer"
-                aria-label="Close modal"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -305,7 +353,7 @@ export const ServerInventoryView: React.FC<ServerInventoryViewProps> = ({ userRo
                   <select
                     value={formData.type}
                     onChange={(e) => setFormData({ ...formData, type: e.target.value as SType })}
-                    className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-sm px-2.5 py-1.5 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-blue-600 cursor-pointer"
+                    className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-sm px-2.5 py-1.5 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-blue-600"
                   >
                     <option value="Application">Application Server</option>
                     <option value="Database">Database Server</option>
@@ -323,7 +371,7 @@ export const ServerInventoryView: React.FC<ServerInventoryViewProps> = ({ userRo
                   <select
                     value={formData.os}
                     onChange={(e) => setFormData({ ...formData, os: e.target.value as OS })}
-                    className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-sm px-2.5 py-1.5 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-blue-600 cursor-pointer"
+                    className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-sm px-2.5 py-1.5 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-blue-600"
                   >
                     <option value="Linux">Linux (RHEL / Ubuntu / Rocky)</option>
                     <option value="Windows">Windows Server (2019 / 2022)</option>
@@ -332,11 +380,11 @@ export const ServerInventoryView: React.FC<ServerInventoryViewProps> = ({ userRo
 
                 <div>
                   <label className="block text-[10px] font-bold uppercase text-gray-600 dark:text-gray-300 mb-1">
-                    Department / Organization
+                    Department / Ministry
                   </label>
                   <input
                     type="text"
-                    placeholder="e.g. ITDB Central"
+                    placeholder="e.g. Ministry of Innovation"
                     value={formData.department}
                     onChange={(e) => setFormData({ ...formData, department: e.target.value })}
                     className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-sm px-2.5 py-1.5 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-blue-600"
@@ -345,39 +393,28 @@ export const ServerInventoryView: React.FC<ServerInventoryViewProps> = ({ userRo
 
                 <div>
                   <label className="block text-[10px] font-bold uppercase text-gray-600 dark:text-gray-300 mb-1">
-                    Data Center / Location
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. DC-1 Rack 12"
-                    value={formData.location}
-                    onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                    className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-sm px-2.5 py-1.5 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-blue-600"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-bold uppercase text-gray-600 dark:text-gray-300 mb-1">
-                    Criticality Level
+                    Data Center / Facility
                   </label>
                   <select
-                    value={formData.criticality}
-                    onChange={(e) => setFormData({ ...formData, criticality: e.target.value as CriticalityLevel })}
-                    className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-sm px-2.5 py-1.5 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-blue-600 cursor-pointer"
+                    value={formData.location}
+                    onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+                    className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-sm px-2.5 py-1.5 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-blue-600 cursor-pointer font-mono"
                   >
-                    <option value="High">High (Tier 1 Mission Critical)</option>
-                    <option value="Medium">Medium (Operational Standard)</option>
-                    <option value="Low">Low (Dev / Staging / Non-Critical)</option>
+                    {dataCenters.map((dc) => (
+                      <option key={dc.id} value={`${dc.id} - ${dc.name}`}>
+                        {dc.id} - {dc.name} ({dc.city})
+                      </option>
+                    ))}
                   </select>
                 </div>
 
-                <div>
+                <div className="sm:col-span-2">
                   <label className="block text-[10px] font-bold uppercase text-gray-600 dark:text-gray-300 mb-1">
                     Owner / Administrator
                   </label>
                   <input
                     type="text"
-                    placeholder="e.g. SysAdmin Team"
+                    placeholder="e.g. SysAdmin Team A"
                     value={formData.owner}
                     onChange={(e) => setFormData({ ...formData, owner: e.target.value })}
                     className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-sm px-2.5 py-1.5 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-blue-600"
@@ -388,7 +425,10 @@ export const ServerInventoryView: React.FC<ServerInventoryViewProps> = ({ userRo
               <div className="pt-3 border-t border-gray-100 dark:border-gray-800 flex items-center justify-end gap-2">
                 <button
                   type="button"
-                  onClick={handleCloseModal}
+                  onClick={() => {
+                    setIsAddModalOpen(false);
+                    setEditingServer(null);
+                  }}
                   className="px-3 py-1.5 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-sm font-bold cursor-pointer"
                 >
                   Cancel
@@ -406,19 +446,14 @@ export const ServerInventoryView: React.FC<ServerInventoryViewProps> = ({ userRo
       )}
 
       {/* Delete Server Confirmation Modal */}
-      {!isReadOnly && deletingServerId && (
-        <div 
-          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="modal-delete-title"
-        >
+      {deletingServerId && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 rounded-sm p-5 max-w-md w-full shadow-xl space-y-4">
-            <h3 id="modal-delete-title" className="font-bold text-sm text-red-600 dark:text-red-400 uppercase tracking-wider flex items-center gap-2">
+            <h3 className="font-bold text-sm text-red-600 dark:text-red-400 uppercase tracking-wider flex items-center gap-2">
               <Trash2 className="w-4 h-4" /> Confirm Server De-registration
             </h3>
             <p className="text-gray-600 dark:text-gray-300 text-xs">
-              Are you sure you want to remove this server node from active monitoring? This will stop telemetry collection.
+              Are you sure you want to remove this server from active government ITDB monitoring? This will stop telemetry logging and telemetry heartbeat collection.
             </p>
             <div className="flex justify-end gap-2 pt-2">
               <button
@@ -440,3 +475,4 @@ export const ServerInventoryView: React.FC<ServerInventoryViewProps> = ({ userRo
     </div>
   );
 };
+

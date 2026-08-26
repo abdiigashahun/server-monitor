@@ -35,32 +35,32 @@ export function formatBytes(bytesGB: number): string {
 export function getSeverityBadgeClass(severity: AlertSeverity): string {
   switch (severity) {
     case 'Critical':
-      return 'bg-red-100 text-red-700 border border-red-200 font-bold';
+      return 'bg-red-100 dark:bg-red-950/80 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 font-bold';
     case 'Warning':
-      return 'bg-amber-100 text-amber-700 border border-amber-200 font-bold';
+      return 'bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-bold';
     case 'Info':
-      return 'bg-blue-100 text-blue-700 border border-blue-200 font-bold';
+      return 'bg-blue-100 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 font-bold';
   }
 }
 
 export function getHealthBadgeClass(status: HealthStatus): string {
   switch (status) {
     case 'Operational':
-      return 'bg-green-100 text-green-700 border border-green-200 font-bold';
+      return 'bg-green-100 dark:bg-green-950/80 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-800 font-bold';
     case 'Warning':
-      return 'bg-amber-100 text-amber-700 border border-amber-200 font-bold';
+      return 'bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-bold';
     case 'Critical':
-      return 'bg-red-100 text-red-700 border border-red-200 font-bold';
+      return 'bg-red-100 dark:bg-red-950/80 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 font-bold';
   }
 }
 
 export function getBackupBadgeClass(status: BackupStatus): string {
   switch (status) {
     case 'Success':
-      return 'bg-green-100 text-green-700 border border-green-200 font-bold';
+      return 'bg-green-100 dark:bg-green-950/80 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-800 font-bold';
     case 'Failed':
-      return 'bg-red-100 text-red-700 border border-red-200 font-bold';
+      return 'bg-red-100 dark:bg-red-950/80 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 font-bold';
     case 'In Progress':
-      return 'bg-blue-100 text-blue-700 border border-blue-200 font-bold animate-pulse';
+      return 'bg-blue-100 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 font-bold animate-pulse';
   }
 }

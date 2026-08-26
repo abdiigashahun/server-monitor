@@ -1,17 +1,12 @@
-// src/components/Alerts/AlertsList.tsx
 import React, { useState } from 'react';
 import { useMonitoring } from '../../context/MonitoringContext';
 import { AlertCard } from './AlertCard';
 import { AlertFilter } from './AlertFilter';
 import { AcknowledgeModal } from './AcknowledgeModal';
-import { Alert, UserRole } from '../../types';
+import { Alert } from '../../types';
 import { ShieldAlert, CheckCircle, BellRing } from 'lucide-react';
 
-interface AlertsListProps {
-  userRole?: UserRole;
-}
-
-export const AlertsList: React.FC<AlertsListProps> = ({ userRole = 'Viewer' }) => {
+export const AlertsList: React.FC = () => {
   const { alerts, acknowledgeAlert, resolveAlert } = useMonitoring();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -19,8 +14,6 @@ export const AlertsList: React.FC<AlertsListProps> = ({ userRole = 'Viewer' }) =
   const [selectedMetric, setSelectedMetric] = useState('ALL');
   const [selectedStatus, setSelectedStatus] = useState('ALL');
   const [selectedAlertForAck, setSelectedAlertForAck] = useState<Alert | null>(null);
-
-  const isReadOnly = userRole === 'Viewer';
 
   const filteredAlerts = alerts.filter((alert) => {
     const matchesSearch =
@@ -51,44 +44,32 @@ export const AlertsList: React.FC<AlertsListProps> = ({ userRole = 'Viewer' }) =
     <div className="space-y-4">
       {/* Metrics Row */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-sm p-3.5 shadow-sm flex items-center justify-between transition-colors">
+        <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 rounded-sm p-3.5 shadow-sm flex items-center justify-between transition-colors">
           <div>
-            <span className="text-[10px] uppercase tracking-wider font-bold text-gray-500 dark:text-slate-400">
-              Active Alerts
-            </span>
-            <div className="text-2xl font-bold font-mono text-gray-900 dark:text-slate-100 mt-0.5">
-              {activeCount}
-            </div>
+            <span className="text-[10px] uppercase tracking-wider font-bold text-gray-500 dark:text-gray-400">Active Alerts</span>
+            <div className="text-2xl font-bold font-mono text-gray-900 dark:text-white mt-0.5">{activeCount}</div>
           </div>
-          <div className="p-2.5 rounded-sm bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60">
+          <div className="p-2.5 rounded-sm bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800">
             <BellRing className="w-5 h-5" />
           </div>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-sm p-3.5 shadow-sm flex items-center justify-between transition-colors">
+        <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 rounded-sm p-3.5 shadow-sm flex items-center justify-between transition-colors">
           <div>
-            <span className="text-[10px] uppercase tracking-wider font-bold text-gray-500 dark:text-slate-400">
-              Critical Breaches
-            </span>
-            <div className="text-2xl font-bold font-mono text-red-600 dark:text-red-400 mt-0.5">
-              {criticalCount}
-            </div>
+            <span className="text-[10px] uppercase tracking-wider font-bold text-gray-500 dark:text-gray-400">Critical Breaches</span>
+            <div className="text-2xl font-bold font-mono text-red-600 dark:text-red-400 mt-0.5">{criticalCount}</div>
           </div>
-          <div className="p-2.5 rounded-sm bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800/60">
+          <div className="p-2.5 rounded-sm bg-red-50 dark:bg-red-950/60 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800">
             <ShieldAlert className="w-5 h-5" />
           </div>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-sm p-3.5 shadow-sm flex items-center justify-between transition-colors">
+        <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 rounded-sm p-3.5 shadow-sm flex items-center justify-between transition-colors">
           <div>
-            <span className="text-[10px] uppercase tracking-wider font-bold text-gray-500 dark:text-slate-400">
-              Acknowledged
-            </span>
-            <div className="text-2xl font-bold font-mono text-blue-600 dark:text-blue-400 mt-0.5">
-              {acknowledgedCount}
-            </div>
+            <span className="text-[10px] uppercase tracking-wider font-bold text-gray-500 dark:text-gray-400">Acknowledged</span>
+            <div className="text-2xl font-bold font-mono text-blue-600 dark:text-blue-400 mt-0.5">{acknowledgedCount}</div>
           </div>
-          <div className="p-2.5 rounded-sm bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800/60">
+          <div className="p-2.5 rounded-sm bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
             <CheckCircle className="w-5 h-5" />
           </div>
         </div>
@@ -110,23 +91,18 @@ export const AlertsList: React.FC<AlertsListProps> = ({ userRole = 'Viewer' }) =
       {/* Alerts Cards List */}
       <div className="space-y-3">
         {filteredAlerts.length === 0 ? (
-          <div className="p-12 text-center bg-gray-50 dark:bg-slate-900/60 border border-gray-200 dark:border-slate-800 rounded-sm text-gray-500 dark:text-slate-400 transition-colors">
-            <CheckCircle className="w-10 h-10 text-emerald-500 dark:text-emerald-400 mx-auto mb-2 opacity-75" />
-            <h4 className="font-semibold text-sm text-gray-800 dark:text-slate-200">
-              No alerts found matching your criteria
-            </h4>
-            <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
-              Try resetting filters or adjusting search terms.
-            </p>
+          <div className="p-12 text-center bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 rounded-sm text-gray-500 dark:text-gray-400 transition-colors">
+            <CheckCircle className="w-10 h-10 text-green-500 dark:text-green-400 mx-auto mb-2 opacity-80" />
+            <h4 className="font-semibold text-sm text-gray-800 dark:text-gray-200">No alerts found matching your criteria</h4>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Try resetting filters or adjusting search terms.</p>
           </div>
         ) : (
           filteredAlerts.map((alert) => (
             <AlertCard
               key={alert.id}
               alert={alert}
-              isReadOnly={isReadOnly}
-              onAcknowledgeClick={(a) => !isReadOnly && setSelectedAlertForAck(a)}
-              onResolveClick={(id) => !isReadOnly && resolveAlert(id)}
+              onAcknowledgeClick={(a) => setSelectedAlertForAck(a)}
+              onResolveClick={(id) => resolveAlert(id)}
             />
           ))
         )}
@@ -136,11 +112,7 @@ export const AlertsList: React.FC<AlertsListProps> = ({ userRole = 'Viewer' }) =
       <AcknowledgeModal
         alert={selectedAlertForAck}
         onClose={() => setSelectedAlertForAck(null)}
-        onConfirm={(id, note) => {
-          if (!isReadOnly) {
-            acknowledgeAlert(id, note);
-          }
-        }}
+        onConfirm={(id, note) => acknowledgeAlert(id, note)}
       />
     </div>
   );

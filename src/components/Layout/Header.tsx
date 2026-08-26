@@ -1,103 +1,71 @@
-// src/components/Layout/Header.tsx
 import React, { useState, useRef, useEffect } from 'react';
 import { useMonitoring } from '../../context/MonitoringContext';
 import { useTheme } from '../../context/ThemeContext';
+import { useAuth } from '../../context/AuthContext';
 import { NotificationBell } from '../Notification/NotificationBell';
-import { Search, Play, Pause, Sun, Moon, Shield, X, Check, Activity, LogOut, Loader2 } from 'lucide-react';
+import { Search, Play, Pause, Sun, Moon, LogOut, ShieldCheck, ChevronDown, UserCheck } from 'lucide-react';
 import { UserRole } from '../../types';
-import { logout } from '../../services/auth';
 
 interface HeaderProps {
   activeTab: string;
-  userRole?: UserRole;
-  setUserRole?: (role: UserRole) => void;
-  onLogout?: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ activeTab, userRole, setUserRole, onLogout }) => {
-  const { userProfile, alerts, isLiveSimulating, toggleLiveSimulation, updateUserProfile } = useMonitoring();
+export const Header: React.FC<HeaderProps> = ({ activeTab }) => {
+  const {
+    alerts,
+    isLiveSimulating,
+    toggleLiveSimulation,
+    dataCenters,
+    selectedDataCenter,
+    setSelectedDataCenter,
+  } = useMonitoring();
   const { theme, toggleTheme } = useTheme();
+  const { user, logout, switchRole } = useAuth();
 
-  const [isProfilePopoutOpen, setIsProfilePopoutOpen] = useState(false);
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const popoutRef = useRef<HTMLDivElement>(null);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
 
-  const activeAlerts = alerts.filter((a) => a.status === 'Active');
-  const criticalAlerts = activeAlerts.filter((a) => a.severity === 'Critical');
-
-  const currentRole: UserRole = userRole || userProfile?.role || 'Viewer';
-  const roles: UserRole[] = ['Admin', 'Operator', 'Viewer'];
-
-  // Handle outside clicks safely without stealing active button focus
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (popoutRef.current && !popoutRef.current.contains(event.target as Node)) {
-        setIsProfilePopoutOpen(false);
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setShowUserMenu(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const getTitle = () => {
-    switch (activeTab) {
-      case 'dashboard':
-        return 'Dashboard Overview';
-      case 'inventory':
-        return 'Server Inventory';
-      case 'backup':
-        return 'Backup Center';
-      case 'alerts-logs':
-        return 'Alerts & Logs';
-      case 'reports':
-        return 'Reports & Analytics';
-      case 'settings':
-        return 'System Settings';
-      case 'audit':
-        return 'Audit Logs';
-      default:
-        return 'ITDB Server Monitor';
-    }
-  };
+  const activeAlerts = alerts.filter((a) => a.status === 'Active');
+  const criticalAlerts = activeAlerts.filter((a) => a.severity === 'Critical');
 
-  const handleRoleSelect = (newRole: UserRole) => {
-    if (setUserRole) {
-      setUserRole(newRole);
-    }
-    updateUserProfile({ role: newRole });
-    setIsProfilePopoutOpen(false);
-  };
-
-  const handleLogoutClick = async (e: React.MouseEvent<HTMLButtonElement>) => {
-    // 1. Stop event bubbling completely to prevent popout auto-dismiss listeners from firing premature unmounts
-    e.preventDefault();
-    e.stopPropagation();
-
-    if (isLoggingOut) return;
-    setIsLoggingOut(true);
-
-    try {
-      console.log('Sending API Logout Request...');
-      
-      // 2. Dispatch backend network call
-      await logout();
-    } catch (error) {
-      console.error('Logout error occurred:', error);
-    } finally {
-      setIsLoggingOut(false);
-      setIsProfilePopoutOpen(false);
-
-      // 3. Clear local session/App state AFTER backend request completes
-      if (onLogout) {
-        onLogout();
-      }
-    }
+  const getRoleBadgeStyle = (role?: string) => {
+    if (role === 'Admin') return 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800';
+    if (role === 'Operator') return 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800';
+    return 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800';
   };
 
   return (
-    <header className="h-16 bg-white dark:bg-[#111827] border-b border-gray-200 dark:border-gray-800 px-6 sm:px-8 flex items-center justify-between sticky top-0 z-40 text-[#1A1A1A] dark:text-[#F9FAFB] transition-colors duration-200">
-      <div className="flex items-center space-x-4">
-        <h1 className="text-xl font-bold tracking-tight text-gray-900 dark:text-white">{getTitle()}</h1>
+    <header className="h-16 bg-white dark:bg-[#111827] border-b border-gray-200 dark:border-gray-800 px-4 sm:px-6 lg:px-8 flex items-center justify-between sticky top-0 z-40 text-[#1A1A1A] dark:text-[#F9FAFB] transition-colors duration-200">
+      {/* DC Switcher & Live System Badges */}
+      <div className="flex items-center space-x-3 sm:space-x-4">
+        {/* Global Data Center Switcher */}
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400">DC Scope:</span>
+          <select
+            value={selectedDataCenter}
+            onChange={(e) => setSelectedDataCenter(e.target.value)}
+            className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded px-2.5 py-1 text-xs font-mono font-semibold text-blue-600 dark:text-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer max-w-[220px] truncate"
+            title="Switch active Data Center context"
+          >
+            <option value="ALL">🌐 All 10 Data Centers</option>
+            {dataCenters.map((dc) => (
+              <option key={dc.id} value={dc.id}>
+                📍 {dc.id} - {dc.name} ({dc.city})
+              </option>
+            ))}
+          </select>
+        </div>
+
         <div className="hidden sm:flex space-x-2">
           {criticalAlerts.length > 0 ? (
             <span className="px-2 py-0.5 bg-red-100 dark:bg-red-950/80 text-red-700 dark:text-red-300 text-[10px] font-bold rounded uppercase border border-red-200 dark:border-red-800">
@@ -116,7 +84,9 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, userRole, setUserRole
         </div>
       </div>
 
+      {/* Right side controls */}
       <div className="flex items-center space-x-3 sm:space-x-4">
+        {/* Search */}
         <div className="relative hidden md:block w-56 lg:w-64">
           <Search className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
@@ -126,6 +96,7 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, userRole, setUserRole
           />
         </div>
 
+        {/* Dark/Light Mode Theme Switcher */}
         <button
           onClick={toggleTheme}
           className="p-1.5 sm:px-3 sm:py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-700 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors cursor-pointer"
@@ -144,6 +115,7 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, userRole, setUserRole
           )}
         </button>
 
+        {/* Live Feed Toggle */}
         <button
           onClick={toggleLiveSimulation}
           className={`px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1.5 transition-colors border cursor-pointer ${
@@ -157,113 +129,87 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, userRole, setUserRole
           <span className="hidden sm:inline">{isLiveSimulating ? 'Live Feed' : 'Paused'}</span>
         </button>
 
+        {/* Notification Bell */}
         <NotificationBell />
 
-        <div className="relative pl-3 border-l border-gray-200 dark:border-gray-800" ref={popoutRef}>
+        {/* User Profile & Dropdown Menu */}
+        <div className="relative pl-3 border-l border-gray-200 dark:border-gray-800" ref={userMenuRef}>
           <button
-            type="button"
-            onClick={() => setIsProfilePopoutOpen(!isProfilePopoutOpen)}
-            className="flex items-center gap-2 p-1 sm:px-2.5 sm:py-1 rounded-lg bg-gray-100 dark:bg-gray-800/80 hover:bg-gray-200 dark:hover:bg-gray-800 border border-gray-200 dark:border-gray-700 transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+            onClick={() => setShowUserMenu(!showUserMenu)}
+            className="flex items-center space-x-2 focus:outline-none cursor-pointer group"
+            title="User Account & Role Switcher"
           >
-            <div className="relative">
-              <img
-                src={userProfile.avatarUrl}
-                alt={userProfile.name}
-                className="w-7 h-7 rounded-md border border-gray-300 dark:border-gray-700 object-cover"
-              />
-              <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-emerald-500 rounded-full border border-white dark:border-gray-900" />
-            </div>
+            <img
+              src={user?.avatarUrl || 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=200'}
+              alt={user?.name || 'User'}
+              className="w-8 h-8 rounded-sm border border-gray-300 dark:border-gray-700 object-cover ring-1 ring-blue-500/30"
+            />
             <div className="hidden sm:block text-left text-xs">
-              <div className="font-semibold text-gray-900 dark:text-gray-100 leading-none">
-                {userProfile.name}
+              <div className="font-semibold text-gray-900 dark:text-gray-100 leading-none group-hover:text-blue-500 transition-colors flex items-center gap-1">
+                <span>{user?.name || 'Administrator'}</span>
+                <ChevronDown className="w-3 h-3 text-gray-400" />
               </div>
-              <div className="text-[10px] font-bold text-blue-600 dark:text-blue-400 mt-0.5 uppercase tracking-wider">
-                {currentRole}
+              <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 font-mono">
+                {user?.role || 'Admin'}
               </div>
             </div>
           </button>
 
-          {isProfilePopoutOpen && (
-            <div className="absolute right-0 mt-2 w-72 bg-white dark:bg-[#0F172A] border border-gray-200 dark:border-slate-800 rounded-2xl shadow-2xl p-4 space-y-3 z-50 text-gray-800 dark:text-white">
-              <div className="flex items-center justify-between border-b border-gray-100 dark:border-slate-800 pb-2.5">
-                <div className="flex items-center gap-2">
-                  <Shield className="w-4 h-4 text-blue-600 dark:text-cyan-400" />
-                  <span className="text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-slate-300">
-                    User Session Profile
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsProfilePopoutOpen(false)}
-                  className="text-gray-400 hover:text-gray-600 dark:hover:text-slate-200 p-1 rounded-md transition-colors cursor-pointer"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-
-              <div className="flex items-center gap-3 p-2.5 bg-gray-50 dark:bg-[#1E293B]/60 border border-gray-200 dark:border-slate-800 rounded-xl">
+          {/* User Profile Popover Dropdown */}
+          {showUserMenu && (
+            <div className="absolute right-0 mt-2 w-72 bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-700 rounded-lg shadow-2xl z-50 p-3 space-y-3 animate-fade-in text-xs">
+              {/* Profile Card */}
+              <div className="flex items-center gap-3 pb-3 border-b border-gray-100 dark:border-gray-800">
                 <img
-                  src={userProfile.avatarUrl}
-                  alt={userProfile.name}
-                  className="w-10 h-10 rounded-xl border border-gray-300 dark:border-slate-700 object-cover shadow-sm"
+                  src={user?.avatarUrl}
+                  alt={user?.name}
+                  className="w-10 h-10 rounded-md border border-gray-300 dark:border-gray-700 object-cover"
                 />
                 <div className="overflow-hidden">
-                  <p className="text-xs font-semibold text-gray-900 dark:text-slate-100 truncate">
-                    {userProfile.name}
-                  </p>
-                  <p className="text-[10px] text-gray-500 dark:text-slate-400 truncate">
-                    {userProfile.email || 'user@govmonitor.gov.et'}
-                  </p>
-                  <div className="flex items-center gap-1.5 text-[10px] text-emerald-600 dark:text-emerald-400 mt-0.5">
-                    <Activity className="w-3 h-3" />
-                    <span>Active Session</span>
-                  </div>
+                  <div className="font-bold text-gray-900 dark:text-white truncate">{user?.name}</div>
+                  <div className="text-[11px] text-gray-500 dark:text-gray-400 truncate">{user?.email}</div>
+                  <span className={`inline-block px-1.5 py-0.2 rounded-xs text-[9px] font-bold uppercase border mt-1 ${getRoleBadgeStyle(user?.role)}`}>
+                    {user?.role} Mode
+                  </span>
                 </div>
               </div>
 
-              <div>
-                <label className="text-[10px] font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wider block mb-1.5">
-                  Active Access Role
-                </label>
-                <div className="space-y-1">
-                  {roles.map((role) => (
+              {/* Quick Role Switcher */}
+              <div className="space-y-1.5">
+                <div className="text-[10px] font-bold uppercase text-gray-500 dark:text-gray-400 tracking-wider">
+                  Switch Demo Role
+                </div>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {(['Admin', 'Operator', 'User'] as UserRole[]).map((r) => (
                     <button
-                      key={role}
-                      type="button"
-                      onClick={() => handleRoleSelect(role)}
-                      className={`w-full text-left px-3 py-2 text-xs rounded-lg flex items-center justify-between transition-all cursor-pointer ${
-                        currentRole === role
-                          ? 'bg-blue-50 dark:bg-cyan-500/15 border border-blue-200 dark:border-cyan-500/30 text-blue-700 dark:text-cyan-300 font-semibold'
-                          : 'text-gray-700 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-800'
+                      key={r}
+                      onClick={() => {
+                        switchRole(r);
+                        setShowUserMenu(false);
+                      }}
+                      className={`py-1 px-1.5 rounded text-[11px] font-semibold border text-center transition-all cursor-pointer ${
+                        user?.role === r
+                          ? 'bg-blue-600 text-white border-blue-500 font-bold'
+                          : 'bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700'
                       }`}
                     >
-                      <span>Role: {role}</span>
-                      {currentRole === role && (
-                        <Check className="w-3.5 h-3.5 text-blue-600 dark:text-cyan-400" />
-                      )}
+                      {r}
                     </button>
                   ))}
                 </div>
               </div>
 
-              <div className="border-t border-gray-100 dark:border-slate-800 pt-2.5">
+              {/* Sign Out Action */}
+              <div className="pt-2 border-t border-gray-100 dark:border-gray-800">
                 <button
-                  type="button"
-                  onClick={handleLogoutClick}
-                  disabled={isLoggingOut}
-                  className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-red-50 dark:bg-red-500/10 hover:bg-red-100 dark:hover:bg-red-500/20 border border-red-200 dark:border-red-500/30 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 rounded-xl text-xs font-semibold transition-all cursor-pointer disabled:opacity-50"
+                  onClick={() => {
+                    logout();
+                    setShowUserMenu(false);
+                  }}
+                  className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-red-50 hover:bg-red-100 dark:bg-red-950/40 dark:hover:bg-red-900/50 text-red-600 dark:text-red-300 font-bold rounded-md border border-red-200 dark:border-red-800 transition-colors cursor-pointer"
                 >
-                  {isLoggingOut ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>Logging Out...</span>
-                    </>
-                  ) : (
-                    <>
-                      <LogOut className="w-3.5 h-3.5" />
-                      <span>Log Out</span>
-                    </>
-                  )}
+                  <LogOut className="w-4 h-4" />
+                  <span>Sign Out / Lock Portal</span>
                 </button>
               </div>
             </div>
@@ -273,3 +219,5 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, userRole, setUserRole
     </header>
   );
 };
+
+
