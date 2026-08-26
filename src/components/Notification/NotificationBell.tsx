@@ -5,7 +5,7 @@ import { Bell, AlertTriangle, CheckCircle, ShieldAlert, Sparkles, X, Activity } 
 import { formatTimestamp } from '../../utils/formatters';
 
 export const NotificationBell: React.FC = () => {
-  const { alerts, acknowledgeAlert, triggerMockAlert } = useMonitoring();
+  const { alerts, acknowledgeAlert, refreshMonitoringData } = useMonitoring();
   const { user } = useAuth();
   const isAdmin = user?.role === 'Admin';
 
@@ -70,17 +70,15 @@ export const NotificationBell: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-1">
-              {isAdmin && (
-                <button
-                  onClick={() => {
-                    triggerMockAlert();
-                  }}
-                  className="text-xs px-2 py-1 bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 border border-cyan-500/30 rounded flex items-center gap-1 transition-colors cursor-pointer"
-                  title="Simulate incoming alert"
-                >
-                  <Sparkles className="w-3 h-3" /> Test
-                </button>
-              )}
+              <button
+                onClick={() => {
+                  refreshMonitoringData();
+                }}
+                className="text-xs px-2 py-1 bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 border border-cyan-500/30 rounded flex items-center gap-1 transition-colors cursor-pointer"
+                title="Sync live alerts from backend"
+              >
+                <Activity className="w-3 h-3" /> Sync
+              </button>
 
               <button
                 onClick={() => setIsOpen(false)}

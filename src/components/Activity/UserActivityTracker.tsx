@@ -35,6 +35,7 @@ import {
 export const UserActivityTracker: React.FC = () => {
   const { auditLogs, addAuditLog } = useMonitoring();
   const { user, activeSessions, terminateSession } = useAuth();
+  const isAdmin = user?.role === 'Admin';
 
   const [activeTab, setActiveTab] = useState<'WHO_GETS_WHERE' | 'DO_WHAT_CHANGES' | 'ACTIVE_SESSIONS'>('WHO_GETS_WHERE');
   const [searchQuery, setSearchQuery] = useState('');
@@ -42,6 +43,32 @@ export const UserActivityTracker: React.FC = () => {
   const [changeTypeFilter, setChangeTypeFilter] = useState<'ALL' | AuditChangeType>('ALL');
   const [selectedDiffLog, setSelectedDiffLog] = useState<AuditLog | null>(null);
   const [exportNotice, setExportNotice] = useState<string | null>(null);
+
+  if (!isAdmin) {
+    return (
+      <div className="bg-white dark:bg-[#111827] border border-red-200 dark:border-red-900/40 rounded-sm p-8 shadow-sm text-center space-y-4 max-w-xl mx-auto my-8">
+        <div className="w-12 h-12 bg-red-100 dark:bg-red-950/80 text-red-600 dark:text-red-400 rounded-full flex items-center justify-center mx-auto border border-red-200 dark:border-red-800">
+          <Shield className="w-6 h-6" />
+        </div>
+        <div>
+          <h2 className="font-bold text-base text-gray-900 dark:text-white uppercase tracking-wider">
+            Access Restricted: Administrator Only
+          </h2>
+          <p className="text-gray-500 dark:text-gray-400 text-xs mt-1.5">
+            User Activity Tracker, System Mutation Changelogs, and Connected Session Management are strictly restricted to Super Admin personnel.
+          </p>
+        </div>
+        <div className="pt-2">
+          <a
+            href="#/dashboard"
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold text-xs transition-colors"
+          >
+            Return to Dashboard
+          </a>
+        </div>
+      </div>
+    );
+  }
 
   // Filter logs for "Who gets where" (Page visits)
   const navigationLogs = auditLogs.filter((log) => {

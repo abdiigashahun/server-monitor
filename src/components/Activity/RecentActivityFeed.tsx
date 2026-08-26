@@ -4,7 +4,16 @@ import { Activity, Server, AlertTriangle, ShieldCheck, User } from 'lucide-react
 import { formatTimestamp } from '../../utils/formatters';
 
 export const RecentActivityFeed: React.FC = () => {
-  const { activities } = useMonitoring();
+  const { activities, auditLogs } = useMonitoring();
+
+  const displayActivities = activities.length > 0 ? activities : auditLogs.slice(0, 10).map((l) => ({
+    id: l.id,
+    type: (l.changeType === 'ALERT_ACTION' ? 'ALERT' : l.changeType === 'AUTH' ? 'USER' : 'SYSTEM') as any,
+    title: l.action,
+    description: l.details || `${l.action} on ${l.resource}`,
+    timestamp: l.timestamp,
+    serverName: l.resource.includes(':') ? l.resource.split(':')[1]?.trim() : undefined,
+  }));
 
   return (
     <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 rounded-sm shadow-sm p-4 flex flex-col h-full">
@@ -20,33 +29,39 @@ export const RecentActivityFeed: React.FC = () => {
       </div>
 
       <div className="mt-2 flex-1 overflow-y-auto space-y-2 pr-1 text-xs">
-        {activities.map((item) => (
-          <div
-            key={item.id}
-            className={`pl-3 py-1.5 border-l-2 transition-colors ${
-              item.type === 'ALERT'
-                ? 'border-red-500'
-                : item.type === 'BACKUP'
-                ? 'border-blue-500'
-                : item.type === 'USER'
-                ? 'border-indigo-500'
-                : 'border-green-500'
-            }`}
-          >
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-bold text-gray-900 dark:text-gray-100 truncate">{item.title}</p>
-              <p className="text-[9px] font-mono text-gray-400 dark:text-gray-500 shrink-0">
-                {formatTimestamp(item.timestamp)}
-              </p>
-            </div>
-            <p className="text-[10px] text-gray-500 dark:text-gray-400 line-clamp-1">{item.description}</p>
-            {item.serverName && (
-              <span className="inline-block text-[9px] font-mono text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded-xs mt-0.5">
-                {item.serverName}
-              </span>
-            )}
+        {displayActivities.length === 0 ? (
+          <div className="py-6 text-center text-gray-400 text-[11px]">
+            No live activity recorded yet.
           </div>
-        ))}
+        ) : (
+          displayActivities.map((item) => (
+            <div
+              key={item.id}
+              className={`pl-3 py-1.5 border-l-2 transition-colors ${
+                item.type === 'ALERT'
+                  ? 'border-red-500'
+                  : item.type === 'BACKUP'
+                  ? 'border-blue-500'
+                  : item.type === 'USER'
+                  ? 'border-indigo-500'
+                  : 'border-green-500'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-bold text-gray-900 dark:text-gray-100 truncate">{item.title}</p>
+                <p className="text-[9px] font-mono text-gray-400 dark:text-gray-500 shrink-0">
+                  {formatTimestamp(item.timestamp)}
+                </p>
+              </div>
+              <p className="text-[10px] text-gray-500 dark:text-gray-400 line-clamp-1">{item.description}</p>
+              {item.serverName && (
+                <span className="inline-block text-[9px] font-mono text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded-xs mt-0.5">
+                  {item.serverName}
+                </span>
+              )}
+            </div>
+          ))
+        )}
       </div>
     </div>
   );

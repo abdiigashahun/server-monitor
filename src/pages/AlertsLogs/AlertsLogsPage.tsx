@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useMonitoring } from '../../context/MonitoringContext';
+import { useAuth } from '../../context/AuthContext';
 import { AlertsList } from '../../components/Alerts/AlertsList';
 import { UserActivityTracker } from '../../components/Activity/UserActivityTracker';
 import { formatTimestamp } from '../../utils/formatters';
@@ -7,7 +8,15 @@ import { BellRing, ShieldCheck, Terminal, Search, Filter, ShieldAlert, CheckCirc
 
 export const AlertsLogsPage: React.FC = () => {
   const { systemLogs } = useMonitoring();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'Admin';
   const [activeTab, setActiveTab] = useState<'ALERTS' | 'SYSTEM_LOGS' | 'AUDIT_TRAIL'>('ALERTS');
+
+  useEffect(() => {
+    if (!isAdmin && activeTab === 'AUDIT_TRAIL') {
+      setActiveTab('ALERTS');
+    }
+  }, [isAdmin, activeTab]);
 
   const [logSearch, setLogSearch] = useState('');
   const [logLevel, setLogLevel] = useState('ALL');
@@ -49,17 +58,19 @@ export const AlertsLogsPage: React.FC = () => {
           Real-Time Log Stream
         </button>
 
-        <button
-          onClick={() => setActiveTab('AUDIT_TRAIL')}
-          className={`pb-3 font-semibold flex items-center gap-2 border-b-2 transition-all cursor-pointer ${
-            activeTab === 'AUDIT_TRAIL'
-              ? 'border-blue-600 text-blue-600 dark:text-blue-400 font-bold'
-              : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
-          }`}
-        >
-          <ShieldCheck className="w-4 h-4" />
-          Audit Trail & Change Tracking (ISO 27001)
-        </button>
+        {isAdmin && (
+          <button
+            onClick={() => setActiveTab('AUDIT_TRAIL')}
+            className={`pb-3 font-semibold flex items-center gap-2 border-b-2 transition-all cursor-pointer ${
+              activeTab === 'AUDIT_TRAIL'
+                ? 'border-blue-600 text-blue-600 dark:text-blue-400 font-bold'
+                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
+            }`}
+          >
+            <ShieldCheck className="w-4 h-4" />
+            Audit Trail & Change Tracking (ISO 27001)
+          </button>
+        )}
       </div>
 
       {/* Tab 1: Alerts List */}
@@ -145,7 +156,7 @@ export const AlertsLogsPage: React.FC = () => {
       )}
 
       {/* Tab 3: Full User Activity & Change Tracker */}
-      {activeTab === 'AUDIT_TRAIL' && <UserActivityTracker />}
+      {activeTab === 'AUDIT_TRAIL' && isAdmin && <UserActivityTracker />}
     </div>
   );
 };

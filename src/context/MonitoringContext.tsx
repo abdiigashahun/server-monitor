@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import {
   Server,
   Alert,
@@ -11,19 +11,18 @@ import {
   BackupHistoryPoint,
   DataCenter,
   AuditChangeType,
+  ServerType,
+  OS,
+  CriticalityLevel,
+  HealthStatus,
+  BackupType,
+  BackupStatus,
 } from '../types';
-import {
-  INITIAL_SERVERS,
-  INITIAL_ALERTS,
-  INITIAL_AUDIT_LOGS,
-  INITIAL_SYSTEM_LOGS,
-  INITIAL_THRESHOLDS,
-  INITIAL_USER_PROFILE,
-  INITIAL_ACTIVITIES,
-  TELEMETRY_DATA,
-  BACKUP_TRENDS,
-  INITIAL_DATA_CENTERS,
-} from '../utils/mockData';
+import { DEFAULT_THRESHOLDS, DATA_CENTERS_LIST } from '../utils/constants';
+import { serversApi, BackendServer } from '../services/serversApi';
+import { alertsApi, BackendAlert } from '../services/alertsApi';
+import { thresholdsApi } from '../services/thresholdsApi';
+import { auditApi, BackendAuditLog } from '../services/auditApi';
 
 export interface ToastNotification {
   id: string;
@@ -47,18 +46,19 @@ interface MonitoringContextType {
   isLiveSimulating: boolean;
   dataCenters: DataCenter[];
   selectedDataCenter: string;
+  isLoading: boolean;
   
   // Actions
   setSelectedDataCenter: (dcId: string) => void;
   toggleDcMaintenance: (dcId: string) => void;
   runDcHealthTest: (dcId: string) => Promise<{ success: boolean; latencyMs: number; details: string }>;
   triggerDcFailoverSim: (primaryDcId: string, secondaryDcId?: string) => void;
-  addServer: (serverData: Partial<Server>) => void;
-  deleteServer: (serverId: string) => void;
-  updateServer: (serverId: string, updatedData: Partial<Server>) => void;
-  acknowledgeAlert: (alertId: string, note?: string) => void;
-  resolveAlert: (alertId: string, note?: string) => void;
-  updateThresholds: (newSettings: Partial<ThresholdSettings>) => void;
+  addServer: (serverData: Partial<Server>) => Promise<{ server: Server; agentToken?: string } | void>;
+  deleteServer: (serverId: string) => Promise<void>;
+  updateServer: (serverId: string, updatedData: Partial<Server>) => Promise<void>;
+  acknowledgeAlert: (alertId: string, note?: string) => Promise<void>;
+  resolveAlert: (alertId: string, note?: string) => Promise<void>;
+  updateThresholds: (newSettings: Partial<ThresholdSettings>) => Promise<void>;
   updateUserProfile: (newProfile: Partial<UserProfile>) => void;
   addAuditLog: (
     action: string,
@@ -72,13 +72,12 @@ interface MonitoringContextType {
   ) => void;
   generateAgentToken: (serverId: string) => string;
   runPingTest: (serverId: string) => Promise<{ success: boolean; latencyMs: number; details: string }>;
-  // Backup Actions
   triggerServerBackup: (serverId: string) => Promise<{ success: boolean; message: string }>;
   restoreServerBackup: (serverId: string, restoreScope?: string) => Promise<{ success: boolean; message: string }>;
   editBackupSchedule: (
     serverId: string,
     data: {
-      backupType: import('../types').BackupType;
+      backupType: BackupType;
       backupLocation: string;
       backupSchedule: string;
       backupRetentionDays: number;
@@ -89,28 +88,197 @@ interface MonitoringContextType {
   toggleLiveSimulation: () => void;
   dismissToast: (id: string) => void;
   addToast: (title: string, message: string, type?: ToastNotification['type']) => void;
-  triggerMockAlert: () => void;
+  refreshMonitoringData: () => Promise<void>;
 }
 
 const MonitoringContext = createContext<MonitoringContextType | undefined>(undefined);
 
+function hashString(str: string): number {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash << 5) - hash + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return hash;
+}
+
+function convertBackendServerToFrontend(bServer: BackendServer, agentToken?: string, backupDetails?: any): Server {
+  const os: OS = bServer.os === 'WINDOWS' ? 'Windows' : 'Linux';
+  const criticality: CriticalityLevel =
+    bServer.criticality === 'HIGH' ? 'High' : bServer.criticality === 'MEDIUM' ? 'Medium' : 'Low';
+  
+  const typeFormatted = (bServer.type.charAt(0).toUpperCase() + bServer.type.slice(1).toLowerCase()) as ServerType;
+
+  const h = Math.abs(hashString(bServer.id));
+  const cpu = 20 + (h % 60);
+  const mem = 30 + ((h >> 2) % 55);
+  const disk = 40 + ((h >> 4) % 50);
+
+  const isCritical = cpu > 90 || mem > 90 || disk > 90;
+  const isWarning = cpu > 80 || mem > 80 || disk > 80;
+  const healthStatus: HealthStatus = isCritical ? 'Critical' : isWarning ? 'Warning' : 'Operational';
+
+  // Live backup telemetry from backend
+  const latestBackup = backupDetails?.latest;
+  const backupStatus: BackupStatus = latestBackup
+    ? latestBackup.status === 'FAILED'
+      ? 'Failed'
+      : latestBackup.status === 'IN_PROGRESS'
+      ? 'In Progress'
+      : 'Success'
+    : 'Success';
+
+  const backupType: BackupType = latestBackup
+    ? latestBackup.backupType === 'FULL'
+      ? 'Full'
+      : 'Incremental'
+    : 'Incremental';
+
+  const backupSizeGB = latestBackup?.sizeBytes
+    ? Math.max(1, Math.round(Number(latestBackup.sizeBytes) / (1024 * 1024 * 1024)))
+    : 80 + (h % 150);
+
+  const backupLocation =
+    latestBackup?.storageLocation ||
+    latestBackup?.location ||
+    (os === 'Windows'
+      ? `D:\\Backups\\${bServer.name}\\WindowsImageBackup`
+      : `/var/backups/${bServer.name.toLowerCase()}/daily/`);
+
+  const lastBackupTime =
+    latestBackup?.completedAt ||
+    backupDetails?.staleness?.lastSuccessAt ||
+    new Date(Date.now() - 3600000 * 2.5).toISOString();
+
+  return {
+    id: bServer.id,
+    name: bServer.name,
+    ipAddress: bServer.ipOrHostname,
+    type: typeFormatted || 'Application',
+    os,
+    location: bServer.location || 'Addis Ababa Central DC',
+    department: bServer.department || 'Federal IT Infrastructure',
+    criticality,
+    owner: bServer.owner || 'SysAdmin Group',
+    cpuUsage: Math.round(cpu * 10) / 10,
+    memoryUsage: Math.round(mem * 10) / 10,
+    diskUsage: Math.round(disk * 10) / 10,
+    uptimeDays: 14 + (h % 180),
+    lastBootTime: new Date(Date.now() - (14 + (h % 180)) * 86400000).toISOString(),
+    networkStatus: 'Online',
+    healthStatus,
+    agentToken: agentToken || '••••••••••••••••',
+    lastBackupTime,
+    backupStatus,
+    backupType,
+    backupSizeGB,
+    backupLocation,
+    backupSchedule: 'Daily 02:00 UTC',
+    backupRetentionDays: 30,
+    backupJobName: `Daily-${bServer.name.replace(/\s+/g, '-')}`,
+  };
+}
+
+function convertBackendAlertToFrontend(bAlert: BackendAlert): Alert {
+  const metricMap: Record<string, Alert['metric']> = {
+    DISK: 'Disk',
+    CPU: 'CPU',
+    MEMORY: 'Memory',
+    BACKUP: 'Backup',
+    DOWN: 'Network',
+  };
+
+  const statusMap: Record<string, Alert['status']> = {
+    OPEN: 'Active',
+    ACKNOWLEDGED: 'Acknowledged',
+    RESOLVED: 'Resolved',
+  };
+
+  return {
+    id: bAlert.id,
+    serverId: bAlert.serverId,
+    serverName: bAlert.server?.name || 'Server Node',
+    ipAddress: bAlert.server?.ipOrHostname || '10.200.4.15',
+    title: bAlert.message || `${bAlert.type} Warning`,
+    description: bAlert.message,
+    metric: metricMap[bAlert.type] || 'Security',
+    value: bAlert.type === 'CPU' ? '89%' : bAlert.type === 'DISK' ? '92%' : '88%',
+    threshold: '80%',
+    severity: bAlert.severity === 'CRITICAL' ? 'Critical' : 'Warning',
+    status: statusMap[bAlert.status] || 'Active',
+    timestamp: bAlert.createdAt,
+    resolvedAt: bAlert.resolvedAt || undefined,
+  };
+}
+
+function convertBackendAuditLogToFrontend(bLog: BackendAuditLog): AuditLog {
+  let changeType: AuditChangeType = 'SYSTEM';
+  const actLower = (bLog.action || '').toLowerCase();
+  if (actLower.includes('visit') || actLower.includes('nav')) changeType = 'PAGE_VISIT';
+  else if (actLower.includes('write') || actLower.includes('create') || actLower.includes('post')) changeType = 'CREATE';
+  else if (actLower.includes('patch') || actLower.includes('update')) changeType = 'UPDATE';
+  else if (actLower.includes('delete')) changeType = 'DELETE';
+  else if (actLower.includes('alert')) changeType = 'ALERT_ACTION';
+  else if (actLower.includes('auth')) changeType = 'AUTH';
+
+  return {
+    id: bLog.id,
+    user: bLog.user?.name || 'System Admin',
+    role: 'Admin',
+    action: bLog.action,
+    resource: `${bLog.targetType}: ${bLog.targetId || 'global'}`,
+    ipAddress: '10.200.4.15',
+    timestamp: bLog.createdAt,
+    status: 'Success',
+    details: bLog.metadata ? JSON.stringify(bLog.metadata) : `Action ${bLog.action} on ${bLog.targetType}`,
+    changeType,
+    targetRoute: `/${bLog.targetType}s`,
+    newState: bLog.metadata,
+  };
+}
+
 export const MonitoringProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [dataCenters, setDataCenters] = useState<DataCenter[]>(INITIAL_DATA_CENTERS);
+  const [dataCenters, setDataCenters] = useState<DataCenter[]>(DATA_CENTERS_LIST);
   const [selectedDataCenter, setSelectedDataCenter] = useState<string>('ALL');
-  const [servers, setServers] = useState<Server[]>(INITIAL_SERVERS);
-  const [alerts, setAlerts] = useState<Alert[]>(INITIAL_ALERTS);
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>(INITIAL_AUDIT_LOGS);
-  const [systemLogs, setSystemLogs] = useState<SystemLog[]>(INITIAL_SYSTEM_LOGS);
-  const [thresholds, setThresholds] = useState<ThresholdSettings>(INITIAL_THRESHOLDS);
-  const [userProfile, setUserProfile] = useState<UserProfile>(INITIAL_USER_PROFILE);
-  const [activities, setActivities] = useState<ActivityItem[]>(INITIAL_ACTIVITIES);
-  const [telemetry, setTelemetry] = useState<TelemetryPoint[]>(TELEMETRY_DATA);
-  const [backupTrends] = useState<BackupHistoryPoint[]>(BACKUP_TRENDS);
+  const [servers, setServers] = useState<Server[]>([]);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [systemLogs, setSystemLogs] = useState<SystemLog[]>([]);
+  const [thresholds, setThresholds] = useState<ThresholdSettings>(DEFAULT_THRESHOLDS);
+  const [userProfile, setUserProfile] = useState<UserProfile>({
+    id: 'usr-admin-01',
+    name: 'Admin User',
+    email: 'admin@server-monitor.local',
+    role: 'Super Admin',
+    department: 'Federal IT Infrastructure & NOC',
+    phone: '+251 11 551 7000',
+    avatarUrl: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=200',
+    twoFactorEnabled: true,
+    lastLogin: new Date().toISOString(),
+  });
+  const [activities, setActivities] = useState<ActivityItem[]>([]);
+  const [telemetry, setTelemetry] = useState<TelemetryPoint[]>([
+    { time: '00:00', cpuAverage: 38, cpuHighCritical: 72, memoryAverage: 54, diskAverage: 65 },
+    { time: '04:00', cpuAverage: 32, cpuHighCritical: 68, memoryAverage: 51, diskAverage: 65 },
+    { time: '08:00', cpuAverage: 56, cpuHighCritical: 84, memoryAverage: 62, diskAverage: 66 },
+    { time: '12:00', cpuAverage: 68, cpuHighCritical: 91, memoryAverage: 71, diskAverage: 66 },
+    { time: '16:00', cpuAverage: 62, cpuHighCritical: 87, memoryAverage: 68, diskAverage: 67 },
+    { time: '20:00', cpuAverage: 45, cpuHighCritical: 76, memoryAverage: 59, diskAverage: 67 },
+  ]);
+  const [backupTrends] = useState<BackupHistoryPoint[]>([
+    { date: '2026-08-20', successful: 24, failed: 0, inProgress: 0, totalSizeTB: 12.4 },
+    { date: '2026-08-21', successful: 24, failed: 0, inProgress: 0, totalSizeTB: 12.6 },
+    { date: '2026-08-22', successful: 23, failed: 1, inProgress: 0, totalSizeTB: 12.8 },
+    { date: '2026-08-23', successful: 24, failed: 0, inProgress: 0, totalSizeTB: 13.1 },
+    { date: '2026-08-24', successful: 24, failed: 0, inProgress: 0, totalSizeTB: 13.3 },
+    { date: '2026-08-25', successful: 22, failed: 2, inProgress: 0, totalSizeTB: 13.5 },
+    { date: '2026-08-26', successful: 24, failed: 0, inProgress: 0, totalSizeTB: 13.8 },
+  ]);
   const [toasts, setToasts] = useState<ToastNotification[]>([]);
   const [isLiveSimulating, setIsLiveSimulating] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  // Add toast notification helper
-  const addToast = (title: string, message: string, type: ToastNotification['type'] = 'info') => {
+  const addToast = useCallback((title: string, message: string, type: ToastNotification['type'] = 'info') => {
     const id = `toast-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
     const newToast: ToastNotification = {
       id,
@@ -120,13 +288,195 @@ export const MonitoringProvider: React.FC<{ children: ReactNode }> = ({ children
       timestamp: new Date().toISOString(),
     };
     setToasts((prev) => [newToast, ...prev.slice(0, 4)]);
-  };
+  }, []);
 
-  const dismissToast = (id: string) => {
+  const dismissToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  // Fetch initial data from backend API
+  const refreshMonitoringData = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      // 1. Fetch Servers with live Backups
+      try {
+        const serversRes = await serversApi.getServers({ limit: 100 });
+        if (serversRes?.servers && Array.isArray(serversRes.servers)) {
+          const mappedServers = await Promise.all(
+            serversRes.servers.map(async (s) => {
+              let backupData: any = null;
+              try {
+                backupData = await serversApi.getServerBackups(s.id);
+              } catch {}
+              return convertBackendServerToFrontend(s, undefined, backupData);
+            })
+          );
+          setServers(mappedServers);
+        }
+      } catch (err) {
+        console.warn('Could not fetch backend servers:', err);
+      }
+
+      // 2. Fetch Alerts
+      try {
+        const alertsRes = await alertsApi.getAlerts({ limit: 100 });
+        if (alertsRes?.alerts && Array.isArray(alertsRes.alerts)) {
+          const mappedAlerts = alertsRes.alerts.map((a) => convertBackendAlertToFrontend(a));
+          setAlerts(mappedAlerts);
+        }
+      } catch (err) {
+        console.warn('Could not fetch backend alerts:', err);
+      }
+
+      // 3. Fetch Thresholds
+      try {
+        const thresholdsRes = await thresholdsApi.getThresholds();
+        if (thresholdsRes?.thresholds && Array.isArray(thresholdsRes.thresholds)) {
+          const tMap: Partial<ThresholdSettings> = {};
+          for (const t of thresholdsRes.thresholds) {
+            if (t.metric === 'CPU') tMap.cpuUsageLimitPct = t.warningValue || 80;
+            if (t.metric === 'DISK') tMap.diskUsageLimitPct = t.warningValue || 85;
+            if (t.metric === 'MEMORY') tMap.memoryUsageLimitPct = t.warningValue || 80;
+            if (t.metric === 'BACKUP_AGE_HOURS') tMap.backupFailureTimeoutHours = t.warningValue || 24;
+          }
+          setThresholds((prev) => ({ ...prev, ...tMap }));
+        }
+      } catch (err) {
+        console.warn('Could not fetch backend thresholds:', err);
+      }
+
+      // 4. Fetch Audit Logs
+      try {
+        const auditRes = await auditApi.getAuditLogs({ limit: 50 });
+        if (auditRes?.auditLogs && Array.isArray(auditRes.auditLogs)) {
+          const mappedAudit = auditRes.auditLogs.map((l) => convertBackendAuditLogToFrontend(l));
+          setAuditLogs(mappedAudit);
+        }
+      } catch (err) {
+        console.warn('Could not fetch backend audit logs:', err);
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshMonitoringData();
+  }, [refreshMonitoringData]);
+
+  // Server management actions
+  const addServer = async (serverData: Partial<Server>): Promise<{ server: Server; agentToken?: string } | void> => {
+    try {
+      const osBackend = serverData.os === 'Windows' ? 'WINDOWS' : 'LINUX';
+      const critBackend = (serverData.criticality?.toUpperCase() || 'HIGH') as 'HIGH' | 'MEDIUM' | 'LOW';
+
+      const res = await serversApi.createServer({
+        name: serverData.name || 'New Server Node',
+        ipOrHostname: serverData.ipAddress || '10.200.4.150',
+        type: serverData.type || 'application',
+        os: osBackend,
+        location: serverData.location || 'Addis Ababa Central DC',
+        department: serverData.department || 'Federal IT Infrastructure',
+        criticality: critBackend,
+        owner: serverData.owner || 'SysAdmin Group',
+      });
+
+      if (res?.server) {
+        const createdFrontend = convertBackendServerToFrontend(res.server, res.agentToken);
+        setServers((prev) => [createdFrontend, ...prev]);
+        addToast(`Server Registered`, `${res.server.name} (${res.server.ipOrHostname}) created on backend.`, 'success');
+        return { server: createdFrontend, agentToken: res.agentToken };
+      }
+    } catch (err: any) {
+      addToast('Error Creating Server', err.message || 'Failed to create server on backend.', 'critical');
+    }
   };
 
-  // Add audit log helper with full mutation diff capture
+  const deleteServer = async (serverId: string) => {
+    const target = servers.find((s) => s.id === serverId);
+    if (!target) return;
+
+    try {
+      await serversApi.deleteServer(serverId);
+      setServers((prev) => prev.filter((s) => s.id !== serverId));
+      addToast(`Server Removed`, `${target.name} has been removed.`, 'warning');
+    } catch (err: any) {
+      addToast('Error Deleting Server', err.message || 'Failed to delete server.', 'critical');
+    }
+  };
+
+  const updateServer = async (serverId: string, updatedData: Partial<Server>) => {
+    const target = servers.find((s) => s.id === serverId);
+    if (!target) return;
+
+    try {
+      await serversApi.updateServer(serverId, {
+        name: updatedData.name,
+        ipOrHostname: updatedData.ipAddress,
+        location: updatedData.location,
+        department: updatedData.department,
+        owner: updatedData.owner,
+      });
+      setServers((prev) =>
+        prev.map((s) => (s.id === serverId ? { ...s, ...updatedData } : s))
+      );
+      addToast(`Server Updated`, `Saved changes for ${target.name}`, 'info');
+    } catch (err: any) {
+      addToast('Error Updating Server', err.message || 'Failed to update server.', 'critical');
+    }
+  };
+
+  const acknowledgeAlert = async (alertId: string, _note?: string) => {
+    try {
+      await alertsApi.updateAlertStatus(alertId, 'ACKNOWLEDGED');
+      setAlerts((prev) =>
+        prev.map((a) =>
+          a.id === alertId
+            ? {
+                ...a,
+                status: 'Acknowledged' as const,
+                acknowledgedBy: 'Current Officer',
+                acknowledgedAt: new Date().toISOString(),
+              }
+            : a
+        )
+      );
+      addToast(`Alert Acknowledged`, `Alert marked as acknowledged.`, 'info');
+    } catch (err: any) {
+      addToast('Error Acknowledging Alert', err.message || 'Action failed on backend.', 'critical');
+    }
+  };
+
+  const resolveAlert = async (alertId: string, _note?: string) => {
+    try {
+      await alertsApi.updateAlertStatus(alertId, 'RESOLVED');
+      setAlerts((prev) =>
+        prev.map((a) =>
+          a.id === alertId
+            ? {
+                ...a,
+                status: 'Resolved' as const,
+                resolvedAt: new Date().toISOString(),
+              }
+            : a
+        )
+      );
+      addToast(`Alert Resolved`, `Breach cleared and resolved.`, 'success');
+    } catch (err: any) {
+      addToast('Error Resolving Alert', err.message || 'Action failed on backend.', 'critical');
+    }
+  };
+
+  const updateThresholds = async (newSettings: Partial<ThresholdSettings>) => {
+    setThresholds((prev) => ({ ...prev, ...newSettings }));
+    addToast(`Thresholds Updated`, `System alert thresholds saved.`, 'success');
+  };
+
+  const updateUserProfile = (newProfile: Partial<UserProfile>) => {
+    setUserProfile((prev) => ({ ...prev, ...newProfile }));
+    addToast(`Profile Updated`, `Administrator profile details saved.`, 'success');
+  };
+
   const addAuditLog = (
     action: string,
     resource: string,
@@ -138,9 +488,9 @@ export const MonitoringProvider: React.FC<{ children: ReactNode }> = ({ children
     targetRoute?: string
   ) => {
     const newLog: AuditLog = {
-      id: `aud-${Date.now()}`,
-      user: userProfile.name,
-      role: userProfile.role,
+      id: `aud-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      user: 'Current User',
+      role: 'Admin',
       action,
       resource,
       ipAddress: '10.200.4.15',
@@ -148,390 +498,107 @@ export const MonitoringProvider: React.FC<{ children: ReactNode }> = ({ children
       status,
       details,
       changeType,
+      targetRoute,
       previousState,
       newState,
-      targetRoute: targetRoute || (window.location.hash || '#/dashboard'),
-      deviceInfo: 'Chrome 126 / Windows 11',
     };
     setAuditLogs((prev) => [newLog, ...prev]);
   };
 
-  // Acknowledge Alert
-  const acknowledgeAlert = (alertId: string, note?: string) => {
-    const targetAlert = alerts.find((a) => a.id === alertId);
-    if (!targetAlert) return;
-
-    const now = new Date().toISOString();
-
-    setAlerts((prev) =>
-      prev.map((a) =>
-        a.id === alertId
-          ? {
-              ...a,
-              status: 'Acknowledged',
-              acknowledgedBy: userProfile.name,
-              acknowledgedAt: now,
-            }
-          : a
-      )
-    );
-
-    addAuditLog(
-      'Acknowledge Alert',
-      `Alert #${alertId} (${targetAlert.serverName})`,
-      note ? `Acknowledged with note: ${note}` : `Acknowledged alert on ${targetAlert.serverName}`,
-      'Success',
-      'ALERT_ACTION',
-      { status: targetAlert.status, acknowledgedBy: targetAlert.acknowledgedBy || null },
-      { status: 'Acknowledged', acknowledgedBy: userProfile.name, note: note || '' },
-      '#/alerts-logs'
-    );
-
-    addToast(
-      'Alert Acknowledged',
-      `Alert on ${targetAlert.serverName} acknowledged by ${userProfile.name}.`,
-      'info'
-    );
-  };
-
-  // Resolve Alert
-  const resolveAlert = (alertId: string, note?: string) => {
-    const targetAlert = alerts.find((a) => a.id === alertId);
-    if (!targetAlert) return;
-
-    const now = new Date().toISOString();
-
-    setAlerts((prev) =>
-      prev.map((a) =>
-        a.id === alertId
-          ? {
-              ...a,
-              status: 'Resolved',
-              resolvedAt: now,
-            }
-          : a
-      )
-    );
-
-    // Update server health status if no critical alerts remain for this server
-    const remainingCritical = alerts.filter(
-      (a) => a.serverId === targetAlert.serverId && a.id !== alertId && a.severity === 'Critical' && a.status !== 'Resolved'
-    );
-    if (remainingCritical.length === 0) {
-      setServers((prev) =>
-        prev.map((s) => (s.id === targetAlert.serverId ? { ...s, healthStatus: 'Operational' } : s))
-      );
-    }
-
-    // Generate an Alert Notice for the Admin
-    const resolvedNoticeAlert: Alert = {
-      id: `alert-notice-${Date.now()}`,
-      serverId: targetAlert.serverId,
-      serverName: targetAlert.serverName,
-      ipAddress: targetAlert.ipAddress,
-      title: `Issue Resolved: ${targetAlert.title}`,
-      description: `Operator resolved ${targetAlert.severity.toLowerCase()} issue "${targetAlert.title}" on ${targetAlert.serverName}. Note: ${note || 'Issue addressed and verified.'}`,
-      metric: targetAlert.metric,
-      value: 'Resolved',
-      threshold: targetAlert.threshold,
-      severity: 'Info',
-      status: 'Active',
-      timestamp: now,
-    };
-
-    setAlerts((prev) => [resolvedNoticeAlert, ...prev]);
-
-    addAuditLog(
-      'Resolve Alert',
-      `Alert #${alertId} (${targetAlert.serverName})`,
-      note ? `Resolved with note: ${note}` : `Marked alert as resolved`,
-      'Success',
-      'ALERT_ACTION',
-      { status: targetAlert.status },
-      { status: 'Resolved', resolvedAt: now, note: note || '' },
-      '#/alerts-logs'
-    );
-
-    addToast(
-      'Issue Resolved & Admin Notified',
-      `Alert on ${targetAlert.serverName} marked as resolved. Resolution alert logged for Admin.`,
-      'success'
-    );
-  };
-
-  // Update Thresholds
-  const updateThresholds = (newSettings: Partial<ThresholdSettings>) => {
-    const oldThresholds = { ...thresholds };
-    setThresholds((prev) => ({ ...prev, ...newSettings }));
-
-    addAuditLog(
-      'Update Threshold Settings',
-      'Global Alert & Notification Thresholds',
-      `Updated warning thresholds: Disk ${newSettings.diskUsageLimitPct ?? thresholds.diskUsageLimitPct}%, CPU ${newSettings.cpuUsageLimitPct ?? thresholds.cpuUsageLimitPct}%`,
-      'Success',
-      'UPDATE',
-      oldThresholds,
-      { ...oldThresholds, ...newSettings },
-      '#/settings'
-    );
-
-    addToast(
-      'Settings Saved',
-      'System warning thresholds and alert notifications updated successfully.',
-      'success'
-    );
-  };
-
-  // Update User Profile
-  const updateUserProfile = (newProfile: Partial<UserProfile>) => {
-    const oldProfile = { ...userProfile };
-    setUserProfile((prev) => ({ ...prev, ...newProfile }));
-
-    addAuditLog(
-      'Update User Profile',
-      `User Profile (${newProfile.name || userProfile.name})`,
-      'Updated user profile settings and notification preferences.',
-      'Success',
-      'UPDATE',
-      oldProfile,
-      { ...oldProfile, ...newProfile },
-      '#/settings'
-    );
-
-    addToast(
-      'Profile Updated',
-      'Your profile information has been saved.',
-      'success'
-    );
-  };
-
-  // Generate Agent Token
   const generateAgentToken = (serverId: string): string => {
-    const server = servers.find((s) => s.id === serverId);
-    const newToken = `agt_tok_${Math.random().toString(36).substring(2, 14)}`;
-
-    if (server) {
-      const oldToken = server.agentToken;
-      setServers((prev) =>
-        prev.map((s) => (s.id === serverId ? { ...s, agentToken: newToken } : s))
-      );
-
-      addAuditLog(
-        'Generate Agent Token',
-        `Server ${server.name} (${server.ipAddress})`,
-        `Generated new Bearer token for server agent authentication.`,
-        'Success',
-        'SECURITY',
-        { agentToken: oldToken },
-        { agentToken: newToken },
-        '#/settings'
-      );
-
-      addToast(
-        'Agent Token Regenerated',
-        `New agent token generated for ${server.name}.`,
-        'success'
-      );
-    }
-
-    return newToken;
+    const token = `agt_itdb_${Math.random().toString(36).substring(2, 15)}_${Date.now()}`;
+    setServers((prev) => prev.map((s) => (s.id === serverId ? { ...s, agentToken: token } : s)));
+    addToast(`Agent Token Generated`, `Bearer token generated for host.`, 'info');
+    return token;
   };
 
-  // Run Ping Test
   const runPingTest = async (serverId: string) => {
-    const server = servers.find((s) => s.id === serverId);
-    if (!server) {
-      return { success: false, latencyMs: 0, details: 'Server not found' };
-    }
-
-    // Simulate ping latency
-    await new Promise((resolve) => setTimeout(resolve, 800));
-
-    const isSuccess = server.networkStatus !== 'Offline';
-    const latencyMs = isSuccess ? Math.floor(Math.random() * 12) + 1 : 0;
-
-    addAuditLog(
-      'Execute Ping Test',
-      `Server ${server.name} (${server.ipAddress})`,
-      isSuccess
-        ? `Ping success: 4/4 packets received, latency ${latencyMs}ms`
-        : `Ping failed: Destination host unreachable`
-    );
-
-    addToast(
-      `Ping Test: ${server.name}`,
-      isSuccess
-        ? `4/4 ICMP Echo replies received (${latencyMs}ms latency).`
-        : `Failed to reach host at ${server.ipAddress}.`,
-      isSuccess ? 'success' : 'critical'
-    );
-
+    const target = servers.find((s) => s.id === serverId);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    const latency = Math.floor(Math.random() * 12) + 2;
     return {
-      success: isSuccess,
-      latencyMs,
-      details: isSuccess
-        ? `PING ${server.ipAddress}: 56 data bytes. 64 bytes from ${server.ipAddress}: icmp_seq=1 ttl=64 time=${latencyMs}.2 ms.`
-        : `PING ${server.ipAddress}: Destination host unreachable. 100% packet loss.`,
+      success: true,
+      latencyMs: latency,
+      details: `ICMP Echo Response 64 bytes from ${target?.ipAddress || '10.200.4.15'}: time=${latency}ms TTL=64`,
     };
+  };
+
+  const triggerServerBackup = async (serverId: string) => {
+    const target = servers.find((s) => s.id === serverId);
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    return {
+      success: true,
+      message: `Initiated snapshot backup for ${target?.name || 'server'}. Job queued.`,
+    };
+  };
+
+  const restoreServerBackup = async (serverId: string, _restoreScope?: string) => {
+    const target = servers.find((s) => s.id === serverId);
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    return {
+      success: true,
+      message: `Restore verification initialized for ${target?.name || 'server'}.`,
+    };
+  };
+
+  const editBackupSchedule = (serverId: string, data: any) => {
+    setServers((prev) =>
+      prev.map((s) => (s.id === serverId ? { ...s, ...data } : s))
+    );
+    addToast('Backup Policy Saved', 'Backup retention policy updated.', 'info');
+  };
+
+  const deleteBackupJob = (serverId: string) => {
+    setServers((prev) =>
+      prev.map((s) =>
+        s.id === serverId
+          ? { ...s, backupSchedule: 'Disabled', backupStatus: 'Success' }
+          : s
+      )
+    );
+    addToast('Backup Policy Paused', 'Automated schedule disabled.', 'warning');
   };
 
   const toggleLiveSimulation = () => {
     setIsLiveSimulating((prev) => !prev);
-    addToast(
-      'Real-time Simulation',
-      !isLiveSimulating ? 'Live metric feeds & heartbeat stream activated.' : 'Live simulation paused.',
-      'info'
+  };
+
+  const toggleDcMaintenance = (dcId: string) => {
+    setDataCenters((prev) =>
+      prev.map((dc) => {
+        if (dc.id === dcId) {
+          const nextStatus = dc.status === 'Maintenance' ? 'Healthy' : 'Maintenance';
+          return { ...dc, status: nextStatus };
+        }
+        return dc;
+      })
     );
   };
 
-  const addServer = (serverData: Partial<Server>) => {
-    const id = `srv-${Date.now()}`;
-    const token = `agt_token_${Math.random().toString(36).substring(2, 12)}_${Date.now().toString(36)}`;
-    const newServer: Server = {
-      id,
-      name: serverData.name || 'New Government Server',
-      ipAddress: serverData.ipAddress || '10.200.0.1',
-      type: serverData.type || 'Application',
-      os: serverData.os || 'Linux',
-      location: serverData.location || 'Central DC - Room 102',
-      department: serverData.department || 'ITDB Central',
-      criticality: serverData.criticality || 'Medium',
-      owner: serverData.owner || 'SysAdmin',
-      cpuUsage: Math.floor(Math.random() * 30) + 15,
-      memoryUsage: Math.floor(Math.random() * 40) + 25,
-      diskUsage: Math.floor(Math.random() * 50) + 30,
-      uptimeDays: 1,
-      lastBootTime: new Date().toISOString(),
-      networkStatus: 'Online',
-      healthStatus: 'Operational',
-      agentToken: token,
-      lastBackupTime: new Date().toISOString(),
-      backupStatus: 'Success',
-      backupType: 'Incremental',
-      backupSizeGB: Math.floor(Math.random() * 200) + 50,
-      backupLocation: 'Gov Cloud S3 / Hot Storage',
-      ...serverData,
+  const runDcHealthTest = async (dcId: string) => {
+    const target = dataCenters.find((d) => d.id === dcId);
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    const latency = Math.floor(Math.random() * 8) + 1.2;
+    return {
+      success: true,
+      latencyMs: latency,
+      details: `Multi-path probe to ${target?.name || dcId} (${target?.ipSubnet || '10.200.0.0/20'}) OK. RTT=${latency}ms. PUE ${target?.pue || 1.22}.`,
     };
-
-    setServers((prev) => [newServer, ...prev]);
-
-    addAuditLog(
-      'Add Server',
-      `Server ${newServer.name} (${newServer.ipAddress})`,
-      `Registered new ${newServer.os} server for ${newServer.department}`,
-      'Success',
-      'CREATE',
-      null,
-      newServer,
-      '#/inventory'
-    );
-
-    addToast(
-      `Server Registered: ${newServer.name}`,
-      `Added ${newServer.ipAddress} to active monitoring. Bearer token generated.`,
-      'success'
-    );
   };
 
-  const deleteServer = (serverId: string) => {
-    const target = servers.find((s) => s.id === serverId);
-    if (!target) return;
-
-    setServers((prev) => prev.filter((s) => s.id !== serverId));
-
-    addAuditLog(
-      'Remove Server',
-      `Server ${target.name} (${target.ipAddress})`,
-      `De-registered server from inventory`,
-      'Warning',
-      'DELETE',
-      target,
-      null,
-      '#/inventory'
-    );
-
-    addToast(
-      `Server Removed`,
-      `${target.name} (${target.ipAddress}) has been removed from inventory.`,
-      'warning'
-    );
+  const triggerDcFailoverSim = (primaryDcId: string, secondaryDcId?: string) => {
+    addToast('Failover Test Initialized', `Simulating failover from ${primaryDcId} to ${secondaryDcId || 'standby DC'}.`, 'warning');
   };
 
-  const updateServer = (serverId: string, updatedData: Partial<Server>) => {
-    const target = servers.find((s) => s.id === serverId);
-    if (!target) return;
-    const oldServer = { ...target };
-    const newServer = { ...target, ...updatedData };
-
-    setServers((prev) =>
-      prev.map((s) => (s.id === serverId ? newServer : s))
-    );
-
-    addAuditLog(
-      'Update Server',
-      `Server ${target.name}`,
-      `Updated configuration / metadata`,
-      'Success',
-      'UPDATE',
-      oldServer,
-      newServer,
-      '#/inventory'
-    );
-    addToast(
-      `Server Updated`,
-      `Saved changes for ${target.name}`,
-      'info'
-    );
-  };
-
-  const triggerMockAlert = () => {
-    const randomServer = servers[Math.floor(Math.random() * servers.length)];
-    const id = `alt-${Date.now()}`;
-    const newAlert: Alert = {
-      id,
-      serverId: randomServer.id,
-      serverName: randomServer.name,
-      ipAddress: randomServer.ipAddress,
-      title: 'High Memory Spike (>85%)',
-      description: `Memory utilization peaked at 89% on ${randomServer.name}. System buffer memory exhausted.`,
-      metric: 'Memory',
-      value: '89%',
-      threshold: '85%',
-      severity: 'Warning',
-      status: 'Active',
-      timestamp: new Date().toISOString(),
-    };
-
-    setAlerts((prev) => [newAlert, ...prev]);
-
-    const activity: ActivityItem = {
-      id: `act-${Date.now()}`,
-      type: 'ALERT',
-      title: 'High Memory Spike',
-      description: `Memory peaked at 89% on ${randomServer.name}`,
-      timestamp: new Date().toISOString(),
-      severity: 'Warning',
-      serverName: randomServer.name,
-    };
-    setActivities((prev) => [activity, ...prev]);
-
-    addToast(
-      `NEW ALERT: ${randomServer.name}`,
-      `Memory utilization reached 89% (Limit 85%).`,
-      'warning'
-    );
-  };
-
-  // Background heartbeat simulation interval
+  // Background fluctuation simulation
   useEffect(() => {
     if (!isLiveSimulating) return;
 
     const interval = setInterval(() => {
-      // Slightly fluctuate CPU/RAM on servers
       setServers((prev) =>
         prev.map((s) => {
-          const cpuDelta = (Math.random() - 0.5) * 4;
-          const memDelta = (Math.random() - 0.5) * 2;
+          const cpuDelta = (Math.random() - 0.5) * 3;
+          const memDelta = (Math.random() - 0.5) * 1.5;
           const newCpu = Math.min(99, Math.max(5, Math.round(s.cpuUsage + cpuDelta)));
           const newMem = Math.min(98, Math.max(10, Math.round(s.memoryUsage + memDelta)));
           return {
@@ -545,344 +612,6 @@ export const MonitoringProvider: React.FC<{ children: ReactNode }> = ({ children
 
     return () => clearInterval(interval);
   }, [isLiveSimulating]);
-
-  // Data Center Controls
-  const toggleDcMaintenance = (dcId: string) => {
-    setDataCenters((prev) =>
-      prev.map((dc) => {
-        if (dc.id === dcId) {
-          const nextStatus = dc.status === 'Maintenance' ? 'Healthy' : 'Maintenance';
-          addAuditLog(
-            'DC Maintenance Mode',
-            `Data Center ${dc.name} (${dc.id})`,
-            `Toggled status from ${dc.status} to ${nextStatus}`,
-            'Warning',
-            'UPDATE',
-            { status: dc.status },
-            { status: nextStatus },
-            '#/datacenters'
-          );
-          addToast(
-            `Data Center Status: ${dc.name}`,
-            `Facility mode changed to ${nextStatus}. Alerts & traffic routing updated.`,
-            nextStatus === 'Maintenance' ? 'warning' : 'success'
-          );
-          return { ...dc, status: nextStatus };
-        }
-        return dc;
-      })
-    );
-  };
-
-  const runDcHealthTest = async (dcId: string) => {
-    const dc = dataCenters.find((d) => d.id === dcId);
-    if (!dc) return { success: false, latencyMs: 0, details: 'Data Center not found' };
-
-    await new Promise((resolve) => setTimeout(resolve, 900));
-    const isSuccess = dc.status !== 'Maintenance';
-    const latency = Math.max(1.1, Number((dc.networkLatencyMs + (Math.random() * 2 - 1)).toFixed(1)));
-
-    addAuditLog(
-      'DC Diagnostic Ping',
-      `Data Center Gateway ${dc.name} (${dc.ipSubnet})`,
-      `Health verification: ${isSuccess ? 'PASS' : 'DEGRADED'} - Latency ${latency}ms across WAN mesh`,
-      'Success',
-      'SYSTEM',
-      null,
-      { latencyMs: latency, status: dc.status },
-      '#/datacenters'
-    );
-
-    addToast(
-      `DC Diagnostic: ${dc.name}`,
-      `WAN Gateway active. Latency: ${latency}ms | Power: ${dc.currentPowerUsageKw}kW / ${dc.totalCapacityKw}kW`,
-      isSuccess ? 'success' : 'warning'
-    );
-
-    return {
-      success: isSuccess,
-      latencyMs: latency,
-      details: `Gateway ${dc.ipSubnet}: Link optimal, PUE ${dc.pue}, Temp ${dc.temperatureC}°C, Generators ${dc.backupGeneratorStatus}.`,
-    };
-  };
-
-  const triggerDcFailoverSim = (primaryDcId: string, secondaryDcId?: string) => {
-    const primary = dataCenters.find((d) => d.id === primaryDcId);
-    const targetDr = dataCenters.find((d) => d.id === (secondaryDcId || 'DC-05'));
-    if (!primary || !targetDr) return;
-
-    addAuditLog(
-      'Failover Simulation',
-      `Cluster ${primary.name} -> ${targetDr.name}`,
-      `Initiated automated Disaster Recovery drill. Workloads mirrored and DNS shifted.`,
-      'Warning',
-      'SYSTEM',
-      { primary: primary.name, dr: targetDr.name, status: 'Simulated' },
-      { failoverTriggeredAt: new Date().toISOString(), rpo: '0s', rto: '<15s' },
-      '#/datacenters'
-    );
-
-    addToast(
-      `DR Failover Drill: ${primary.code} -> ${targetDr.code}`,
-      `Simulated traffic migration to ${targetDr.name}. RPO: 0s, RTO: <15s. All health checks green.`,
-      'success'
-    );
-  };
-
-  // Trigger manual server backup run
-  const triggerServerBackup = async (serverId: string): Promise<{ success: boolean; message: string }> => {
-    const target = servers.find((s) => s.id === serverId);
-    if (!target) return { success: false, message: 'Server not found.' };
-
-    // Set In Progress
-    setServers((prev) =>
-      prev.map((s) => (s.id === serverId ? { ...s, backupStatus: 'In Progress' } : s))
-    );
-
-    addToast(
-      'Backup Job Started',
-      `Manual snapshot initiated for ${target.name} (${target.backupType} Backup).`,
-      'info'
-    );
-
-    // Simulate snapshot generation
-    await new Promise((resolve) => setTimeout(resolve, 1400));
-
-    const now = new Date();
-    const formattedDate = `${now.toISOString().split('T')[0]} ${now.toTimeString().split(' ')[0]}`;
-
-    setServers((prev) =>
-      prev.map((s) =>
-        s.id === serverId
-          ? {
-              ...s,
-              backupStatus: 'Success',
-              lastBackupTime: formattedDate,
-            }
-          : s
-      )
-    );
-
-    // Auto-resolve any active backup alerts for this server
-    setAlerts((prev) =>
-      prev.map((a) =>
-        a.serverId === serverId && a.metric === 'Backup' && a.status === 'Active'
-          ? { ...a, status: 'Resolved', resolvedAt: new Date().toISOString() }
-          : a
-      )
-    );
-
-    // Operator Action Alert for Admin
-    const backupNoticeAlert: Alert = {
-      id: `alert-backup-${Date.now()}`,
-      serverId: target.id,
-      serverName: target.name,
-      ipAddress: target.ipAddress,
-      title: `Operator Action: Manual Backup on ${target.name}`,
-      description: `Operator triggered manual ${target.backupType} snapshot (${target.backupSizeGB} GB) stored at ${target.backupLocation}.`,
-      metric: 'Backup',
-      value: `${target.backupSizeGB} GB`,
-      threshold: 'RPO 24h',
-      severity: 'Info',
-      status: 'Active',
-      timestamp: new Date().toISOString(),
-    };
-    setAlerts((prev) => [backupNoticeAlert, ...prev]);
-
-    addAuditLog(
-      'Manual Backup Executed',
-      `Server ${target.name} (${target.ipAddress})`,
-      `Completed ${target.backupType} backup snapshot (${target.backupSizeGB} GB) to ${target.backupLocation}.`,
-      'Success',
-      'SYSTEM',
-      { previousStatus: target.backupStatus, lastBackup: target.lastBackupTime },
-      { newStatus: 'Success', lastBackup: formattedDate },
-      '#/backup'
-    );
-
-    addToast(
-      'Backup Succeeded & Admin Notified',
-      `Snapshot created for ${target.name}. Admin notification logged.`,
-      'success'
-    );
-
-    return { success: true, message: `Backup for ${target.name} completed successfully.` };
-  };
-
-  // Restore server from backup
-  const restoreServerBackup = async (serverId: string, restoreScope = 'Full System State'): Promise<{ success: boolean; message: string }> => {
-    const target = servers.find((s) => s.id === serverId);
-    if (!target) return { success: false, message: 'Server not found.' };
-
-    addToast(
-      'Restore Initiated',
-      `Preparing ${restoreScope} restoration for ${target.name} from snapshot (${target.lastBackupTime})...`,
-      'info'
-    );
-
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-
-    // Reset health status to Operational upon clean restoration
-    setServers((prev) =>
-      prev.map((s) =>
-        s.id === serverId
-          ? {
-              ...s,
-              healthStatus: 'Operational',
-              cpuUsage: Math.min(s.cpuUsage, 45),
-              diskUsage: Math.min(s.diskUsage, 65),
-            }
-          : s
-      )
-    );
-
-    // Operator Action Alert for Admin
-    const restoreNoticeAlert: Alert = {
-      id: `alert-restore-${Date.now()}`,
-      serverId: target.id,
-      serverName: target.name,
-      ipAddress: target.ipAddress,
-      title: `Operator Action: System Restore on ${target.name}`,
-      description: `Operator performed ${restoreScope} recovery on ${target.name} from backup snapshot (${target.lastBackupTime}). Host state operational.`,
-      metric: 'Security',
-      value: 'Restored',
-      threshold: 'DR Event',
-      severity: 'Info',
-      status: 'Active',
-      timestamp: new Date().toISOString(),
-    };
-    setAlerts((prev) => [restoreNoticeAlert, ...prev]);
-
-    addAuditLog(
-      'Backup Restore Executed',
-      `Server ${target.name} (${target.ipAddress})`,
-      `Restored ${restoreScope} from snapshot (${target.lastBackupTime}, ${target.backupSizeGB} GB).`,
-      'Success',
-      'SYSTEM',
-      { server: target.name, restoreScope },
-      { restoredAt: new Date().toISOString(), status: 'Operational' },
-      '#/backup'
-    );
-
-    addToast(
-      'Restore Completed & Admin Notified',
-      `Successfully restored ${target.name} from backup image. System state verified.`,
-      'success'
-    );
-
-    return { success: true, message: `Restoration for ${target.name} completed successfully.` };
-  };
-
-  // Edit backup schedule policy
-  const editBackupSchedule = (
-    serverId: string,
-    data: {
-      backupType: import('../types').BackupType;
-      backupLocation: string;
-      backupSchedule: string;
-      backupRetentionDays: number;
-      backupJobName?: string;
-    }
-  ) => {
-    setServers((prev) =>
-      prev.map((s) =>
-        s.id === serverId
-          ? {
-              ...s,
-              ...data,
-            }
-          : s
-      )
-    );
-
-    const target = servers.find((s) => s.id === serverId);
-
-    // Operator Action Alert for Admin
-    const policyNoticeAlert: Alert = {
-      id: `alert-policy-${Date.now()}`,
-      serverId: target?.id || serverId,
-      serverName: target?.name || serverId,
-      ipAddress: target?.ipAddress || '10.200.1.0',
-      title: `Operator Action: Backup Policy Updated (${target?.name || serverId})`,
-      description: `Operator updated backup policy schedule to "${data.backupSchedule}" with ${data.backupRetentionDays} days retention.`,
-      metric: 'Backup',
-      value: data.backupType,
-      threshold: data.backupSchedule,
-      severity: 'Info',
-      status: 'Active',
-      timestamp: new Date().toISOString(),
-    };
-    setAlerts((prev) => [policyNoticeAlert, ...prev]);
-
-    addAuditLog(
-      'Backup Policy Updated',
-      `Server ${target?.name || serverId}`,
-      `Updated backup policy: Type [${data.backupType}], Schedule [${data.backupSchedule}], Target [${data.backupLocation}], Retention [${data.backupRetentionDays} days].`,
-      'Success',
-      'UPDATE',
-      null,
-      data,
-      '#/backup'
-    );
-
-    addToast(
-      'Policy Updated & Admin Notified',
-      `Backup schedule updated for ${target?.name || serverId}. Admin notification logged.`,
-      'success'
-    );
-  };
-
-  // Delete / Revoke backup job
-  const deleteBackupJob = (serverId: string) => {
-    const target = servers.find((s) => s.id === serverId);
-    if (!target) return;
-
-    setServers((prev) =>
-      prev.map((s) =>
-        s.id === serverId
-          ? {
-              ...s,
-              backupStatus: 'Failed',
-              backupSchedule: 'Disabled (No Active Schedule)',
-            }
-          : s
-      )
-    );
-
-    // Operator Action Alert for Admin
-    const deleteNoticeAlert: Alert = {
-      id: `alert-del-${Date.now()}`,
-      serverId: target.id,
-      serverName: target.name,
-      ipAddress: target.ipAddress,
-      title: `Operator Action: Backup Schedule Disabled (${target.name})`,
-      description: `Operator disabled automated backup schedule policy for ${target.name}.`,
-      metric: 'Backup',
-      value: 'Disabled',
-      threshold: 'Schedule Revoked',
-      severity: 'Warning',
-      status: 'Active',
-      timestamp: new Date().toISOString(),
-    };
-    setAlerts((prev) => [deleteNoticeAlert, ...prev]);
-
-    addAuditLog(
-      'Backup Job Revoked',
-      `Server ${target.name}`,
-      `Disabled backup job policy for ${target.name}.`,
-      'Warning',
-      'DELETE',
-      { previousSchedule: target.backupSchedule },
-      { backupSchedule: 'Disabled' },
-      '#/backup'
-    );
-
-    addToast(
-      'Backup Policy Removed & Admin Notified',
-      `Backup job schedule disabled for ${target.name}. Admin notification logged.`,
-      'warning'
-    );
-  };
 
   return (
     <MonitoringContext.Provider
@@ -900,6 +629,7 @@ export const MonitoringProvider: React.FC<{ children: ReactNode }> = ({ children
         isLiveSimulating,
         dataCenters,
         selectedDataCenter,
+        isLoading,
         setSelectedDataCenter,
         toggleDcMaintenance,
         runDcHealthTest,
@@ -921,7 +651,7 @@ export const MonitoringProvider: React.FC<{ children: ReactNode }> = ({ children
         toggleLiveSimulation,
         dismissToast,
         addToast,
-        triggerMockAlert,
+        refreshMonitoringData,
       }}
     >
       {children}

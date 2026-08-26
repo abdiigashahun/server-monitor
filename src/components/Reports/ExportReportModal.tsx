@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useMonitoring } from '../../context/MonitoringContext';
+import { reportsApi } from '../../services/reportsApi';
 import { downloadCSV, downloadExcel, printPDF } from '../../utils/exportUtils';
-import { FileText, Download, FileSpreadsheet, Printer, X } from 'lucide-react';
+import { FileText, Download, FileSpreadsheet, Printer, X, Loader2 } from 'lucide-react';
 
 interface ExportReportModalProps {
   isOpen: boolean;
@@ -9,14 +10,36 @@ interface ExportReportModalProps {
 }
 
 export const ExportReportModal: React.FC<ExportReportModalProps> = ({ isOpen, onClose }) => {
-  const { servers, auditLogs } = useMonitoring();
+  const { servers, auditLogs, addToast } = useMonitoring();
 
   const [reportType, setReportType] = useState<'HEALTH' | 'BACKUP' | 'AUDIT'>('HEALTH');
   const [fileFormat, setFileFormat] = useState<'PDF' | 'EXCEL' | 'CSV'>('PDF');
+  const [isExporting, setIsExporting] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleExport = () => {
+  const handleExport = async () => {
+    setIsExporting(true);
+    try {
+      if (reportType === 'HEALTH' && (fileFormat === 'PDF' || fileFormat === 'EXCEL')) {
+        await reportsApi.downloadHealthReport(fileFormat === 'PDF' ? 'pdf' : 'excel');
+        addToast('Report Downloaded', `Server Health report (${fileFormat}) downloaded from backend.`, 'success');
+        onClose();
+        return;
+      }
+
+      if (reportType === 'BACKUP' && (fileFormat === 'PDF' || fileFormat === 'EXCEL')) {
+        await reportsApi.downloadBackupsReport(fileFormat === 'PDF' ? 'pdf' : 'excel');
+        addToast('Report Downloaded', `Backup Audit report (${fileFormat}) downloaded from backend.`, 'success');
+        onClose();
+        return;
+      }
+    } catch (err: any) {
+      console.warn('Backend export failed, generating client-side export:', err);
+    } finally {
+      setIsExporting(false);
+    }
+
     if (reportType === 'HEALTH') {
       const headers = ['Server Name', 'IP Address', 'OS', 'Type', 'Department', 'CPU %', 'RAM %', 'Disk %', 'Health Status'];
       const rows = servers.map((s) => [

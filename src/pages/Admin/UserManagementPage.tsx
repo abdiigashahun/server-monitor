@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useMonitoring } from '../../context/MonitoringContext';
 import { UserRole, RolePermissions, UserAccount } from '../../types';
-import { ROLE_PERMISSIONS } from '../../utils/mockData';
+import { DEFAULT_ROLE_PERMISSIONS as ROLE_PERMISSIONS } from '../../utils/constants';
 import {
   Users,
   UserPlus,
@@ -184,11 +184,11 @@ export const UserManagementPage: React.FC = () => {
   };
 
   // Submit Edit Account
-  const handleEditSubmit = (e: React.FormEvent) => {
+  const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingAccount) return;
 
-    updateAccount(editingAccount.id, {
+    await updateAccount(editingAccount.id, {
       name: editingAccount.user.name,
       username: editingAccount.username,
       email: editingAccount.user.email,
@@ -205,11 +205,11 @@ export const UserManagementPage: React.FC = () => {
   };
 
   // Submit Reset Password
-  const handleResetPasswordSubmit = (e: React.FormEvent) => {
+  const handleResetPasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!resettingAccount || !newResetPassword.trim()) return;
 
-    updateAccount(resettingAccount.id, {
+    await updateAccount(resettingAccount.id, {
       password: newResetPassword.trim(),
     });
 
@@ -219,10 +219,10 @@ export const UserManagementPage: React.FC = () => {
   };
 
   // Confirm Delete Account
-  const handleDeleteConfirm = () => {
+  const handleDeleteConfirm = async () => {
     if (!deletingAccount) return;
 
-    const res = deleteAccount(deletingAccount.id);
+    const res = await deleteAccount(deletingAccount.id);
     if (res.success) {
       addToast('Account Removed', `Account for ${deletingAccount.user.name} has been revoked.`, 'warning');
       setDeletingAccount(null);
@@ -518,9 +518,8 @@ export const UserManagementPage: React.FC = () => {
                   return (
                     <tr
                       key={acc.id}
-                      className={`hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors ${
-                        isCurrent ? 'bg-blue-50/40 dark:bg-blue-950/20' : ''
-                      }`}
+                      className={`hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors ${isCurrent ? 'bg-blue-50/40 dark:bg-blue-950/20' : ''
+                        }`}
                     >
                       {/* User & Avatar */}
                       <td className="p-3">
@@ -550,13 +549,12 @@ export const UserManagementPage: React.FC = () => {
                       <td className="p-3">
                         <div>
                           <span
-                            className={`inline-block px-2 py-0.5 rounded-sm font-bold text-[10px] uppercase border ${
-                              acc.user.role === 'Admin'
+                            className={`inline-block px-2 py-0.5 rounded-sm font-bold text-[10px] uppercase border ${acc.user.role === 'Admin'
                                 ? 'bg-blue-50 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
                                 : acc.user.role === 'Operator'
-                                ? 'bg-amber-50 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
-                                : 'bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
-                            }`}
+                                  ? 'bg-amber-50 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                                  : 'bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                              }`}
                           >
                             {acc.user.role}
                           </span>
@@ -594,11 +592,10 @@ export const UserManagementPage: React.FC = () => {
                       <td className="p-3 text-center">
                         <button
                           onClick={() => toggleAccountStatus(acc.id)}
-                          className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase transition-all cursor-pointer ${
-                            isSuspended
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase transition-all cursor-pointer ${isSuspended
                               ? 'bg-red-100 dark:bg-red-950/80 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-800 hover:bg-red-200'
                               : 'bg-green-100 dark:bg-green-950/80 text-green-700 dark:text-green-300 border border-green-300 dark:border-green-800 hover:bg-green-200'
-                          }`}
+                            }`}
                           title="Click to toggle account status (Active / Suspended)"
                         >
                           {isSuspended ? 'Suspended' : 'Active'}
@@ -706,11 +703,10 @@ export const UserManagementPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => handleRoleChangeInForm('Operator')}
-                    className={`p-3 rounded border text-left transition-all cursor-pointer ${
-                      newRole === 'Operator'
+                    className={`p-3 rounded border text-left transition-all cursor-pointer ${newRole === 'Operator'
                         ? 'bg-amber-50 dark:bg-amber-950/60 border-amber-500 text-amber-900 dark:text-amber-200 ring-1 ring-amber-500 font-bold'
                         : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400'
-                    }`}
+                      }`}
                   >
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold">👁️ Operator</span>
@@ -724,11 +720,10 @@ export const UserManagementPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => handleRoleChangeInForm('User')}
-                    className={`p-3 rounded border text-left transition-all cursor-pointer ${
-                      newRole === 'User'
+                    className={`p-3 rounded border text-left transition-all cursor-pointer ${newRole === 'User'
                         ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-500 text-emerald-900 dark:text-emerald-200 ring-1 ring-emerald-500 font-bold'
                         : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400'
-                    }`}
+                      }`}
                   >
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold">📋 User / Auditor</span>
@@ -742,11 +737,10 @@ export const UserManagementPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => handleRoleChangeInForm('Admin')}
-                    className={`p-3 rounded border text-left transition-all cursor-pointer ${
-                      newRole === 'Admin'
+                    className={`p-3 rounded border text-left transition-all cursor-pointer ${newRole === 'Admin'
                         ? 'bg-blue-50 dark:bg-blue-950/60 border-blue-500 text-blue-900 dark:text-blue-200 ring-1 ring-blue-500 font-bold'
                         : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400'
-                    }`}
+                      }`}
                   >
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold">🛡️ Administrator</span>

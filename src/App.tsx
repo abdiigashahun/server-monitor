@@ -24,16 +24,26 @@ function AppContent() {
     const handleHashChange = () => {
       const hash = window.location.hash.replace('#/', '');
       if (['dashboard', 'datacenters', 'inventory', 'backup', 'alerts-logs', 'reports', 'settings', 'activity', 'users', 'login'].includes(hash)) {
-        setActiveTab(hash);
+        if ((hash === 'activity' || hash === 'users') && !isAdmin) {
+          setActiveTab('dashboard');
+          window.location.hash = '#/dashboard';
+        } else {
+          setActiveTab(hash);
+        }
       }
     };
 
     handleHashChange();
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
-  }, []);
+  }, [isAdmin]);
 
   const handleTabChange = (tab: string) => {
+    if ((tab === 'activity' || tab === 'users') && !isAdmin) {
+      setActiveTab('dashboard');
+      window.location.hash = '#/dashboard';
+      return;
+    }
     setActiveTab(tab);
     window.location.hash = `#/${tab}`;
   };
@@ -50,7 +60,7 @@ function AppContent() {
       {activeTab === 'backup' && <BackupCenterView />}
       {activeTab === 'alerts-logs' && <AlertsLogsPage />}
       {activeTab === 'reports' && <ReportsPage />}
-      {activeTab === 'activity' && <UserActivityTracker />}
+      {activeTab === 'activity' && (isAdmin ? <UserActivityTracker /> : <DashboardOverview />)}
       {activeTab === 'users' && (isAdmin ? <UserManagementPage /> : <DashboardOverview />)}
       {activeTab === 'settings' && <SettingsPage />}
     </Layout>

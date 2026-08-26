@@ -58,12 +58,47 @@ export const DataCentersView: React.FC = () => {
   const [pingingDcId, setPingingDcId] = useState<string | null>(null);
   const [isTestingAll, setIsTestingAll] = useState(false);
 
-  // Aggregate Metrics
+  // Helper to get live servers for a given DC facility
+  const getDcServerList = (dc: DataCenter) => {
+    return servers.filter((s) => {
+      const loc = (s.location || '').toLowerCase();
+      const city = (dc.city || '').toLowerCase();
+      const name = (dc.name || '').toLowerCase();
+      const id = (dc.id || '').toLowerCase();
+      const code = (dc.code || '').toLowerCase();
+      return loc.includes(city) || loc.includes(name) || loc.includes(id) || loc.includes(code);
+    });
+  };
+
+  // Helper to compute live dynamic metrics for a DC
+  const getDcLiveStats = (dc: DataCenter) => {
+    const dcServerList = getDcServerList(dc);
+    const serverCount = dcServerList.length;
+    const rackCount = serverCount > 0 ? Math.ceil(serverCount / 4) : 0;
+    const powerUsageKw = serverCount > 0 ? Math.round(serverCount * 2.5 * 10) / 10 : 0;
+    const powerPct = dc.totalCapacityKw > 0 ? Math.round((powerUsageKw / dc.totalCapacityKw) * 100) : 0;
+    const hasCritical = dcServerList.some((s) => s.healthStatus === 'Critical');
+    const hasWarning = dcServerList.some((s) => s.healthStatus === 'Warning');
+    const status: 'Healthy' | 'Warning' | 'Maintenance' =
+      dc.status === 'Maintenance' ? 'Maintenance' : (hasCritical || hasWarning ? 'Warning' : 'Healthy');
+
+    return {
+      serverList: dcServerList,
+      serverCount,
+      rackCount,
+      powerUsageKw,
+      powerPct,
+      status,
+    };
+  };
+
+  // Aggregate Metrics based on live backend data
   const totalDcs = dataCenters.length;
-  const healthyCount = dataCenters.filter((d) => d.status === 'Healthy').length;
-  const warningCount = dataCenters.filter((d) => d.status === 'Warning').length;
+  const dcsWithLiveServers = dataCenters.filter((d) => getDcServerList(d).length > 0).length;
+  const healthyCount = dataCenters.filter((d) => getDcLiveStats(d).status === 'Healthy').length;
+  const warningCount = dataCenters.filter((d) => getDcLiveStats(d).status === 'Warning').length;
   const maintCount = dataCenters.filter((d) => d.status === 'Maintenance').length;
-  const totalPowerUsed = dataCenters.reduce((acc, d) => acc + d.currentPowerUsageKw, 0);
+  const totalPowerUsed = Math.round(servers.length * 2.5 * 10) / 10;
   const totalPowerCap = dataCenters.reduce((acc, d) => acc + d.totalCapacityKw, 0);
   const avgPue = (dataCenters.reduce((acc, d) => acc + d.pue, 0) / totalDcs).toFixed(2);
   const avgLatency = (dataCenters.reduce((acc, d) => acc + d.networkLatencyMs, 0) / totalDcs).toFixed(1);
@@ -100,9 +135,7 @@ export const DataCentersView: React.FC = () => {
   };
 
   // Get servers for inspected DC
-  const dcServers = inspectingDc
-    ? servers.filter((s) => s.location.includes(inspectingDc.name) || s.location.includes(inspectingDc.id) || s.location.includes(inspectingDc.code))
-    : [];
+  const dcServers = inspectingDc ? getDcServerList(inspectingDc) : [];
 
   return (
     <div className="space-y-5 text-xs text-[#1A1A1A] dark:text-[#F9FAFB] transition-colors duration-200">
@@ -354,7 +387,7 @@ export const DataCentersView: React.FC = () => {
                   </tr>
                 ) : (
                   filteredDcs.map((dc) => {
-                    const powerPct = Math.round((dc.currentPowerUsageKw / dc.totalCapacityKw) * 100);
+                    const stats = getDcLiveStats(dc);
                     const isSelected = selectedDataCenter === dc.id;
                     const targetName =
                       dc.id === 'DC-05'
@@ -403,14 +436,14 @@ export const DataCentersView: React.FC = () => {
                         <td className="p-3">
                           <span
                             className={`px-2 py-0.5 rounded-sm text-[10px] font-bold uppercase tracking-wider ${
-                              dc.status === 'Healthy'
+                              stats.status === 'Healthy'
                                 ? 'bg-green-100 dark:bg-green-950/80 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-800'
-                                : dc.status === 'Warning'
+                                : stats.status === 'Warning'
                                 ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
                                 : 'bg-blue-100 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
                             }`}
                           >
-                            {dc.status}
+                            {stats.status}
                           </span>
                         </td>
 
@@ -419,18 +452,18 @@ export const DataCentersView: React.FC = () => {
                           <div className="space-y-1 min-w-[120px]">
                             <div className="flex items-center justify-between text-[10px]">
                               <span className="text-gray-600 dark:text-gray-300 font-bold">
-                                {dc.currentPowerUsageKw} kW
+                                {stats.powerUsageKw} kW
                               </span>
                               <span className="text-gray-500 dark:text-gray-400">
-                                {powerPct}%
+                                {stats.powerPct}%
                               </span>
                             </div>
                             <div className="w-full bg-gray-200 dark:bg-gray-700 h-1.5 rounded-full overflow-hidden">
                               <div
                                 className={`h-full rounded-full ${
-                                  powerPct > 80 ? 'bg-red-500' : powerPct > 65 ? 'bg-amber-500' : 'bg-green-500'
+                                  stats.powerPct > 80 ? 'bg-red-500' : stats.powerPct > 65 ? 'bg-amber-500' : 'bg-green-500'
                                 }`}
-                                style={{ width: `${powerPct}%` }}
+                                style={{ width: `${Math.max(stats.powerPct, 2)}%` }}
                               />
                             </div>
                           </div>
@@ -474,8 +507,8 @@ export const DataCentersView: React.FC = () => {
 
                         {/* Servers & Racks */}
                         <td className="p-3 font-sans text-[11px]">
-                          <span className="font-bold text-gray-900 dark:text-white">{dc.serverCount}</span> Servers •{' '}
-                          <span className="text-gray-500 dark:text-gray-400">{dc.rackCount} Racks</span>
+                          <span className="font-bold text-gray-900 dark:text-white">{stats.serverCount}</span> Servers •{' '}
+                          <span className="text-gray-500 dark:text-gray-400">{stats.rackCount} Racks</span>
                         </td>
 
                         {/* Subnet */}
@@ -510,7 +543,7 @@ export const DataCentersView: React.FC = () => {
       {viewMode === 'GRID' && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {filteredDcs.map((dc) => {
-            const powerPct = Math.round((dc.currentPowerUsageKw / dc.totalCapacityKw) * 100);
+            const stats = getDcLiveStats(dc);
             const isPinging = pingingDcId === dc.id;
 
             return (
@@ -518,9 +551,9 @@ export const DataCentersView: React.FC = () => {
                 key={dc.id}
                 onClick={() => setInspectingDc(dc)}
                 className={`bg-white dark:bg-[#111827] border rounded-sm p-4 shadow-sm flex flex-col justify-between space-y-3.5 transition-all relative overflow-hidden cursor-pointer hover:border-blue-500 hover:shadow-md ${
-                  dc.status === 'Healthy'
+                  stats.status === 'Healthy'
                     ? 'border-gray-200 dark:border-gray-800 border-t-4 border-t-green-500'
-                    : dc.status === 'Warning'
+                    : stats.status === 'Warning'
                     ? 'border-gray-200 dark:border-gray-800 border-t-4 border-t-amber-500'
                     : 'border-gray-200 dark:border-gray-800 border-t-4 border-t-blue-500 opacity-90'
                 }`}
@@ -542,14 +575,14 @@ export const DataCentersView: React.FC = () => {
 
                     <span
                       className={`px-2 py-0.5 rounded-sm text-[10px] font-bold uppercase tracking-wider ${
-                        dc.status === 'Healthy'
+                        stats.status === 'Healthy'
                           ? 'bg-green-100 dark:bg-green-950/80 text-green-700 dark:text-green-300 border border-green-200 dark:border-green-800'
-                          : dc.status === 'Warning'
+                          : stats.status === 'Warning'
                           ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
                           : 'bg-blue-100 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800'
                       }`}
                     >
-                      {dc.status}
+                      {stats.status}
                     </span>
                   </div>
 
@@ -572,15 +605,15 @@ export const DataCentersView: React.FC = () => {
                       <Zap className="w-3.5 h-3.5 text-amber-500" /> Facility Power Draw
                     </span>
                     <span className="font-mono font-bold text-gray-900 dark:text-white">
-                      {dc.currentPowerUsageKw} / {dc.totalCapacityKw} kW ({powerPct}%)
+                      {stats.powerUsageKw} / {dc.totalCapacityKw} kW ({stats.powerPct}%)
                     </span>
                   </div>
                   <div className="w-full bg-gray-200 dark:bg-gray-700 h-1.5 rounded-full overflow-hidden">
                     <div
                       className={`h-full rounded-full transition-all ${
-                        powerPct > 80 ? 'bg-red-500' : powerPct > 65 ? 'bg-amber-500' : 'bg-green-500'
+                        stats.powerPct > 80 ? 'bg-red-500' : stats.powerPct > 65 ? 'bg-amber-500' : 'bg-green-500'
                       }`}
-                      style={{ width: `${powerPct}%` }}
+                      style={{ width: `${Math.max(stats.powerPct, 2)}%` }}
                     />
                   </div>
                 </div>
@@ -619,7 +652,7 @@ export const DataCentersView: React.FC = () => {
                 <div className="pt-2 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between text-[11px] text-gray-500 dark:text-gray-400 font-mono">
                   <span>Subnet: {dc.ipSubnet}</span>
                   <span className="font-sans font-semibold text-gray-700 dark:text-gray-300">
-                    {dc.serverCount} Servers • {dc.rackCount} Racks
+                    {stats.serverCount} Servers • {stats.rackCount} Racks
                   </span>
                 </div>
 

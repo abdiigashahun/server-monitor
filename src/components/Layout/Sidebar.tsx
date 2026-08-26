@@ -55,15 +55,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
             label: 'User Management',
             icon: Users,
           },
+          {
+            id: 'activity',
+            label: 'User Activity & Changes',
+            icon: Shield,
+            badge: 'Who/What',
+            badgeColor: 'bg-emerald-900 text-emerald-300',
+          },
         ]
       : []),
-    {
-      id: 'activity',
-      label: 'User Activity & Changes',
-      icon: Shield,
-      badge: 'Who/What',
-      badgeColor: 'bg-emerald-900 text-emerald-300',
-    },
     { id: 'settings', label: 'System Settings', icon: Settings },
   ];
 

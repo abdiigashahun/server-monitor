@@ -36,6 +36,7 @@ export const DashboardOverview: React.FC = () => {
     runPingTest,
     generateAgentToken,
     acknowledgeAlert,
+    resolveAlert,
     dataCenters,
     selectedDataCenter,
     setSelectedDataCenter,
@@ -46,9 +47,9 @@ export const DashboardOverview: React.FC = () => {
 
   const [activeTokenModalServer, setActiveTokenModalServer] = useState<string | null>(null);
 
-  const totalServers = 120;
-  const linuxCount = 70;
-  const windowsCount = 50;
+  const totalServers = servers.length;
+  const linuxCount = servers.filter((s) => s.os === 'Linux').length;
+  const windowsCount = servers.filter((s) => s.os === 'Windows').length;
 
   const visibleAlerts = alerts.filter((a) => {
     if (!isAdmin && (
@@ -68,6 +69,11 @@ export const DashboardOverview: React.FC = () => {
   const healthyServersCount = servers.filter((s) => s.healthStatus === 'Operational').length;
   const warningServersCount = servers.filter((s) => s.healthStatus === 'Warning').length;
   const criticalServersCount = servers.filter((s) => s.healthStatus === 'Critical').length;
+  const uptimePct = totalServers > 0 ? Math.round((healthyServersCount / totalServers) * 100) : 100;
+
+  const failedBackupsCount = servers.filter((s) => s.backupStatus === 'Failed').length;
+  const successfulBackupsCount = servers.filter((s) => s.backupStatus === 'Success').length;
+  const backupCompliancePct = totalServers > 0 ? ((successfulBackupsCount / totalServers) * 100).toFixed(1) : '100.0';
 
   return (
     <div className="space-y-6 text-xs text-[#1A1A1A] dark:text-[#F9FAFB] transition-colors duration-200">
@@ -90,7 +96,7 @@ export const DashboardOverview: React.FC = () => {
           <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase font-bold tracking-wider">Health Uptime</p>
           <div className="flex items-center justify-between mt-1">
             <p className="text-2xl font-mono text-[#1A1A1A] dark:text-white font-bold">
-              96<span className="text-sm text-green-600 dark:text-green-400">%</span>
+              {uptimePct}<span className="text-sm text-green-600 dark:text-green-400">%</span>
             </p>
             <div className="text-[10px] space-y-0.5 font-mono text-gray-600 dark:text-gray-400 text-right">
               <span className="text-green-600 dark:text-green-400 font-bold">{healthyServersCount} Healthy</span> •{' '}
@@ -110,10 +116,10 @@ export const DashboardOverview: React.FC = () => {
         <div className="bg-white dark:bg-[#111827] p-4 border border-gray-200 dark:border-gray-800 rounded-sm shadow-sm flex flex-col justify-between">
           <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase font-bold tracking-wider">Backup Compliance</p>
           <p className="text-2xl font-mono mt-1 text-green-600 dark:text-green-400 font-bold">
-            98.5<span className="text-sm text-gray-400">%</span>
+            {backupCompliancePct}<span className="text-sm text-gray-400">%</span>
           </p>
           <div className="mt-3 pt-2 border-t border-gray-100 dark:border-gray-800 text-[10px] text-gray-500 dark:text-gray-400 font-mono">
-            24h failures: <span className="text-red-600 dark:text-red-400 font-bold">2</span>
+            24h failures: <span className={failedBackupsCount > 0 ? 'text-red-600 dark:text-red-400 font-bold' : 'text-green-600 dark:text-green-400 font-bold'}>{failedBackupsCount}</span>
           </div>
         </div>
 
@@ -176,7 +182,18 @@ export const DashboardOverview: React.FC = () => {
                   />
                 </div>
                 <div className="text-[9px] font-sans truncate text-gray-500 dark:text-gray-400">{dc.city}</div>
-                <div className="text-[10px] font-bold text-gray-900 dark:text-white">{dc.currentPowerUsageKw}kW</div>
+                {(() => {
+                  const dcServerCount = servers.filter(
+                    (s) => s.location && (s.location.includes(dc.name) || s.location.includes(dc.city) || s.location.includes(dc.id))
+                  ).length;
+                  const power = dcServerCount > 0 ? Math.round(dcServerCount * 2.5 * 10) / 10 : 0;
+                  return (
+                    <div className="text-[10px] font-bold text-gray-900 dark:text-white flex items-center justify-between">
+                      <span>{power}kW</span>
+                      <span className="text-[9px] font-mono text-gray-500 font-normal">{dcServerCount}srv</span>
+                    </div>
+                  );
+                })()}
               </button>
             );
           })}
@@ -241,27 +258,42 @@ export const DashboardOverview: React.FC = () => {
               </span>
             </div>
 
-            <div className="flex-1 overflow-y-auto space-y-2 max-h-40 pr-1">
-              {activeAlerts.map((alert) => (
-                <div
-                  key={alert.id}
-                  className="p-2.5 rounded-sm bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 flex items-center justify-between text-xs"
-                >
-
-                  <div>
-                    <div className="font-bold text-gray-900 dark:text-white font-mono">{alert.serverName}</div>
-                    <div className="text-[11px] text-gray-600 dark:text-gray-400 line-clamp-1">{alert.title}</div>
-                  </div>
-                  {isAdmin && (
-                    <button
-                      onClick={() => acknowledgeAlert(alert.id)}
-                      className="px-2.5 py-1 text-[10px] font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-sm shadow-sm transition-colors uppercase tracking-wider cursor-pointer"
-                    >
-                      Ack
-                    </button>
-                  )}
+            <div className="flex-1 overflow-y-auto space-y-2 max-h-40 pr-1 flex flex-col justify-center">
+              {activeAlerts.length === 0 ? (
+                <div className="py-4 text-center text-gray-500 dark:text-gray-400">
+                  <CheckCircle2 className="w-6 h-6 text-green-500 mx-auto mb-1 opacity-80" />
+                  <p className="text-[11px] font-semibold text-gray-700 dark:text-gray-300">All systems normal</p>
+                  <p className="text-[10px] text-gray-400">No active alerts pending</p>
                 </div>
-              ))}
+              ) : (
+                activeAlerts.map((alert) => (
+                  <div
+                    key={alert.id}
+                    className="p-2.5 rounded-sm bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 flex items-center justify-between text-xs"
+                  >
+                    <div>
+                      <div className="font-bold text-gray-900 dark:text-white font-mono">{alert.serverName}</div>
+                      <div className="text-[11px] text-gray-600 dark:text-gray-400 line-clamp-1">{alert.title}</div>
+                    </div>
+                    {isAdmin && alert.status === 'Active' && (
+                      <button
+                        onClick={() => acknowledgeAlert(alert.id)}
+                        className="px-2.5 py-1 text-[10px] font-bold bg-amber-600 hover:bg-amber-700 text-white rounded-sm shadow-sm transition-colors uppercase tracking-wider cursor-pointer"
+                      >
+                        Ack
+                      </button>
+                    )}
+                    {user?.role === 'Operator' && alert.status !== 'Resolved' && (
+                      <button
+                        onClick={() => resolveAlert(alert.id)}
+                        className="px-2.5 py-1 text-[10px] font-bold bg-green-600 hover:bg-green-700 text-white rounded-sm shadow-sm transition-colors uppercase tracking-wider cursor-pointer"
+                      >
+                        Resolve
+                      </button>
+                    )}
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>

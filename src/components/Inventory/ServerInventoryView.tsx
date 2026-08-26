@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useMonitoring } from '../../context/MonitoringContext';
 import { useAuth } from '../../context/AuthContext';
 import { getHealthBadgeClass } from '../../utils/formatters';
-import { Server, Search, Plus, Edit, Trash2, X, Check, Activity, Shield, Lock, Eye } from 'lucide-react';
+import { Server, Search, Plus, Edit, Trash2, X, Check, Activity, Shield, Lock, Eye, Key } from 'lucide-react';
 import { Server as ServerType, ServerType as SType, OS, CriticalityLevel } from '../../types';
 
 export const ServerInventoryView: React.FC = () => {
@@ -77,25 +77,40 @@ export const ServerInventoryView: React.FC = () => {
     });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Newly generated token state for display
+  const [createdServerToken, setCreatedServerToken] = useState<{ serverName: string; token: string } | null>(null);
+  const [copiedToken, setCopiedToken] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canManageServers) return;
     if (!formData.name.trim() || !formData.ipAddress.trim()) return;
 
     if (editingServer) {
-      updateServer(editingServer.id, formData);
+      await updateServer(editingServer.id, formData);
       setEditingServer(null);
     } else {
-      addServer(formData);
+      const res = await addServer(formData);
       setIsAddModalOpen(false);
+      if (res && res.agentToken) {
+        setCreatedServerToken({ serverName: res.server.name, token: res.agentToken });
+      }
     }
     resetForm();
   };
 
-  const handleDeleteConfirm = (id: string) => {
+  const handleDeleteConfirm = async (id: string) => {
     if (!canManageServers) return;
-    deleteServer(id);
+    await deleteServer(id);
     setDeletingServerId(null);
+  };
+
+  const handleCopyToken = () => {
+    if (createdServerToken?.token) {
+      navigator.clipboard.writeText(createdServerToken.token);
+      setCopiedToken(true);
+      setTimeout(() => setCopiedToken(false), 3000);
+    }
   };
 
   const activeDcFilter = selectedDc !== 'ALL' ? selectedDc : selectedDataCenter;
@@ -467,6 +482,63 @@ export const ServerInventoryView: React.FC = () => {
                 className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-sm font-bold cursor-pointer"
               >
                 Delete Server
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Backend Agent Token Display Modal */}
+      {createdServerToken && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-[#111827] border border-blue-500/40 rounded-lg p-6 max-w-lg w-full shadow-2xl space-y-4 animate-fade-in">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-md bg-blue-500/10 text-blue-500 border border-blue-500/20">
+                <Key className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-sm text-gray-900 dark:text-white uppercase tracking-wider">
+                  Server Registered: Agent Token Generated
+                </h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Node: <strong>{createdServerToken.serverName}</strong>
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded text-xs text-amber-800 dark:text-amber-300 space-y-1">
+              <p className="font-bold">Important Single-Use Token Notice:</p>
+              <p className="text-[11px]">
+                This plaintext agent token is returned <strong>only once</strong> upon server registration. The backend stores only its cryptographic hash. Copy and configure it on the host agent daemon immediately.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-[10px] font-bold uppercase text-gray-500 dark:text-gray-400 tracking-wider">
+                Agent Bearer Token:
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={createdServerToken.token}
+                  className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded px-3 py-2 text-xs font-mono text-blue-600 dark:text-blue-400 select-all"
+                />
+                <button
+                  onClick={handleCopyToken}
+                  className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold text-xs shrink-0 cursor-pointer transition-colors"
+                >
+                  {copiedToken ? 'Copied!' : 'Copy'}
+                </button>
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-gray-100 dark:border-gray-800 flex justify-end">
+              <button
+                onClick={() => setCreatedServerToken(null)}
+                className="px-4 py-2 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-200 font-bold rounded text-xs cursor-pointer"
+              >
+                I have securely saved this token
               </button>
             </div>
           </div>

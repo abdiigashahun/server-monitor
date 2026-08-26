@@ -90,9 +90,10 @@ export const AlertCard: React.FC<AlertCardProps> = ({
 
         {/* Action buttons */}
         <div className="flex sm:flex-col items-end gap-2 shrink-0 self-end sm:self-auto mt-2 sm:mt-0">
-          {canHandleAlerts ? (
+          {/* Admin Action: ONLY Acknowledge */}
+          {user?.role === 'Admin' && (
             <>
-              {alert.status === 'Active' && user?.role === 'Admin' && (
+              {alert.status === 'Active' && (
                 <button
                   onClick={() => onAcknowledgeClick(alert)}
                   className="px-3 py-1.5 text-xs font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-100 dark:hover:bg-amber-900/60 border border-amber-200 dark:border-amber-800 rounded-sm transition-colors flex items-center gap-1 cursor-pointer"
@@ -100,7 +101,17 @@ export const AlertCard: React.FC<AlertCardProps> = ({
                   <Check className="w-3.5 h-3.5" /> Acknowledge
                 </button>
               )}
+              {alert.status === 'Acknowledged' && (
+                <span className="px-2.5 py-1 rounded-sm text-xs font-bold text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 flex items-center gap-1">
+                  <Check className="w-3.5 h-3.5" /> Acknowledged
+                </span>
+              )}
+            </>
+          )}
 
+          {/* Operator Action: ONLY Resolve */}
+          {user?.role === 'Operator' && (
+            <>
               {alert.status !== 'Resolved' && (
                 <button
                   onClick={() => onResolveClick(alert.id)}
@@ -110,12 +121,16 @@ export const AlertCard: React.FC<AlertCardProps> = ({
                 </button>
               )}
             </>
-          ) : (
+          )}
+
+          {/* Read-Only Viewer Status */}
+          {user?.role !== 'Admin' && user?.role !== 'Operator' && alert.status !== 'Resolved' && (
             <span className="px-2.5 py-1 rounded-sm text-[11px] font-bold text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center gap-1">
               <Lock className="w-3 h-3 text-amber-500" /> Status: {alert.status}
             </span>
           )}
 
+          {/* Cleared / Resolved State */}
           {alert.status === 'Resolved' && (
             <span className="px-2.5 py-1 rounded-sm text-xs font-bold text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-950/60 border border-green-200 dark:border-green-800 flex items-center gap-1">
               <CheckCircle2 className="w-3.5 h-3.5" /> Resolved

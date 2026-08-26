@@ -15,7 +15,7 @@ export const AlertsList: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSeverity, setSelectedSeverity] = useState('ALL');
   const [selectedMetric, setSelectedMetric] = useState('ALL');
-  const [selectedStatus, setSelectedStatus] = useState('ALL');
+  const [selectedStatus, setSelectedStatus] = useState('Active');
   const [selectedAlertForAck, setSelectedAlertForAck] = useState<Alert | null>(null);
 
   // Role-based alert visibility: Issue Resolved and Operator Action alerts only appear for Admin
@@ -55,7 +55,7 @@ export const AlertsList: React.FC = () => {
     setSearchQuery('');
     setSelectedSeverity('ALL');
     setSelectedMetric('ALL');
-    setSelectedStatus('ALL');
+    setSelectedStatus('Active');
   };
 
   return (
@@ -111,8 +111,14 @@ export const AlertsList: React.FC = () => {
         {filteredAlerts.length === 0 ? (
           <div className="p-12 text-center bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 rounded-sm text-gray-500 dark:text-gray-400 transition-colors">
             <CheckCircle className="w-10 h-10 text-green-500 dark:text-green-400 mx-auto mb-2 opacity-80" />
-            <h4 className="font-semibold text-sm text-gray-800 dark:text-gray-200">No alerts found matching your criteria</h4>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Try resetting filters or adjusting search terms.</p>
+            <h4 className="font-semibold text-sm text-gray-800 dark:text-gray-200">
+              {selectedStatus === 'Active' ? 'No Active Alerts' : 'No alerts found matching your criteria'}
+            </h4>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              {selectedStatus === 'Active'
+                ? 'All servers and infrastructure nodes are currently operating within normal thresholds.'
+                : 'Try adjusting filters or switching status to "Resolved" to view historical logs.'}
+            </p>
           </div>
         ) : (
           filteredAlerts.map((alert) => (
