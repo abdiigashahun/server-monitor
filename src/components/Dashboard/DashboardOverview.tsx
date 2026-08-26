@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useApi } from '../../hooks/useApi';
 import * as serversApi from '../../api/servers';
 import * as alertsApi from '../../api/alerts';
@@ -14,16 +14,26 @@ import {
   Clock,
   BellRing,
   AlertTriangle,
-  Layers,
   ArrowRight,
 } from 'lucide-react';
 import {
   alertSeverityVariant,
-  criticalityVariant,
   formatTimestamp,
   titleCase,
 } from '../../utils/formatters';
-import type { Server } from '../../types';
+import {
+  DonutCard,
+  EstateHealthTrend,
+  EstateBackupSummary,
+  LiveIndicator,
+  type DonutSlice,
+} from './DashboardCharts';
+import type { Server, AlertType } from '../../types';
+
+// The dashboard silently re-fetches its core cards/alerts on this cadence.
+const CORE_REFRESH_MS = 30_000;
+// Cap on how many servers the estate fan-out charts request health/backups for.
+const ESTATE_CAP = 60;
 
 interface StatCardProps {
   icon: React.ElementType;
@@ -88,39 +98,107 @@ function summarize(servers: Server[]) {
   return s;
 }
 
+const ALERT_TYPE_COLOR: Record<AlertType, string> = {
+  CPU: '#2563EB',
+  MEMORY: '#7C3AED',
+  DISK: '#D97706',
+  BACKUP: '#0891B2',
+  DOWN: '#DC2626',
+};
+
 export const DashboardOverview: React.FC = () => {
   const { user, can } = useAuth();
   const canServers = can('servers:read');
   const canAlerts = can('alerts:read');
 
+  // Bumped by the manual "Refresh" button to force the estate fan-out charts to reload.
+  const [refreshSignal, setRefreshSignal] = useState(0);
+
   const serversQuery = useApi(
     () => (canServers ? serversApi.list({}) : Promise.resolve(null)),
     [canServers],
+    { refreshMs: CORE_REFRESH_MS },
   );
   const openAlertsQuery = useApi(
-    () => (canAlerts ? alertsApi.list({ status: 'OPEN', limit: 5 }) : Promise.resolve(null)),
+    () => (canAlerts ? alertsApi.list({ status: 'OPEN', limit: 100 }) : Promise.resolve(null)),
     [canAlerts],
+    { refreshMs: CORE_REFRESH_MS },
   );
   const criticalQuery = useApi(
     () => (canAlerts ? alertsApi.list({ status: 'OPEN', severity: 'CRITICAL', limit: 1 }) : Promise.resolve(null)),
     [canAlerts],
+    { refreshMs: CORE_REFRESH_MS },
   );
 
   const servers = serversQuery.data?.servers ?? [];
   const stats = useMemo(() => summarize(servers), [servers]);
-  const openAlerts = openAlertsQuery.data?.alerts ?? [];
+
+  const openAlertsAll = openAlertsQuery.data?.alerts ?? [];
+  const recentOpen = openAlertsAll.slice(0, 5);
   const openTotal = openAlertsQuery.data?.pagination.total ?? 0;
   const criticalTotal = criticalQuery.data?.pagination.total ?? 0;
 
+  // Only non-group servers that run an agent actually report health/backups.
+  const reporting = useMemo(() => servers.filter((s) => !s.isGroup && s.expectsAgent), [servers]);
+  const reportingIds = useMemo(() => reporting.slice(0, ESTATE_CAP).map((s) => s.id), [reporting]);
+  const estateNote =
+    reporting.length === 0
+      ? undefined
+      : reporting.length > ESTATE_CAP
+        ? `Across the first ${ESTATE_CAP} of ${reporting.length} reporting servers.`
+        : `Across ${reporting.length} reporting server${reporting.length === 1 ? '' : 's'}.`;
+
+  const criticalitySlices: DonutSlice[] = [
+    { name: 'High', value: stats.high, color: '#DC2626' },
+    { name: 'Medium', value: stats.medium, color: '#D97706' },
+    { name: 'Low', value: stats.low, color: '#6B7280' },
+  ];
+  const verificationSlices: DonutSlice[] = [
+    { name: 'Verified', value: stats.verified, color: '#16A34A' },
+    { name: 'Pending', value: stats.pending, color: '#D97706' },
+    { name: 'No agent', value: stats.notRequired, color: '#9CA3AF' },
+  ];
+  const alertsByType = useMemo<DonutSlice[]>(() => {
+    const counts: Partial<Record<AlertType, number>> = {};
+    for (const a of openAlertsAll) counts[a.type] = (counts[a.type] ?? 0) + 1;
+    return (['CPU', 'MEMORY', 'DISK', 'BACKUP', 'DOWN'] as AlertType[]).map((t) => ({
+      name: titleCase(t),
+      value: counts[t] ?? 0,
+      color: ALERT_TYPE_COLOR[t],
+    }));
+  }, [openAlertsAll]);
+  const alertsFootnote =
+    openTotal > openAlertsAll.length ? `Showing ${openAlertsAll.length} of ${openTotal} open alerts.` : undefined;
+
+  const lastUpdated =
+    Math.max(
+      serversQuery.lastUpdated ?? 0,
+      openAlertsQuery.lastUpdated ?? 0,
+      criticalQuery.lastUpdated ?? 0,
+    ) || null;
+  const refreshing = serversQuery.refreshing || openAlertsQuery.refreshing || criticalQuery.refreshing;
+
+  const refreshAll = () => {
+    serversQuery.reload();
+    openAlertsQuery.reload();
+    criticalQuery.reload();
+    setRefreshSignal((n) => n + 1);
+  };
+
+  const serversReady = canServers && !serversQuery.loading && !serversQuery.error;
+
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-bold text-gray-900 dark:text-white">
-          Welcome back{user ? `, ${user.name.split(' ')[0]}` : ''}
-        </h2>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-          Live status of the monitored estate.
-        </p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+            Welcome back to {user ? ` ${user.name.split(' ')[0]}` : ''}
+          </h2>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+            Live status of the monitored estate.
+          </p>
+        </div>
+        <LiveIndicator lastUpdated={lastUpdated} refreshing={refreshing} onRefresh={refreshAll} />
       </div>
 
       {/* Server + alert stat cards */}
@@ -163,34 +241,48 @@ export const DashboardOverview: React.FC = () => {
         </div>
       )}
 
+      {/* Composition & alert-mix donuts */}
+      {(serversReady || canAlerts) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {serversReady && (
+            <>
+              <DonutCard
+                title="Criticality mix"
+                icon={ServerIcon}
+                slices={criticalitySlices}
+                centerLabel="servers"
+                emptyMessage="No servers in the inventory yet."
+              />
+              <DonutCard
+                title="Agent verification"
+                icon={ShieldCheck}
+                slices={verificationSlices}
+                centerLabel="servers"
+                emptyMessage="No servers in the inventory yet."
+                footnote={`${stats.groups} grouping container${stats.groups === 1 ? '' : 's'}.`}
+              />
+            </>
+          )}
+          {canAlerts && !openAlertsQuery.loading && !openAlertsQuery.error && (
+            <DonutCard
+              title="Open alerts by type"
+              icon={BellRing}
+              slices={alertsByType}
+              centerLabel="open"
+              emptyMessage="No open alerts right now."
+              footnote={alertsFootnote}
+            />
+          )}
+        </div>
+      )}
+
+      {/* Estate health trend (averaged across reporting servers) */}
+      {serversReady && <EstateHealthTrend serverIds={reportingIds} note={estateNote} refreshSignal={refreshSignal} />}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* Criticality mix */}
-        {canServers && !serversQuery.loading && !serversQuery.error && (
-          <section className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 rounded-lg shadow-sm">
-            <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
-              <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
-                <Layers className="w-4 h-4 text-blue-600" />
-                Estate composition
-              </h3>
-              <button
-                onClick={() => navigate('servers')}
-                className="text-xs font-semibold text-blue-600 hover:underline cursor-pointer inline-flex items-center gap-1"
-              >
-                Inventory <ArrowRight className="w-3 h-3" />
-              </button>
-            </div>
-            <div className="p-5 space-y-4">
-              <div className="grid grid-cols-3 gap-3 text-center">
-                <CritStat label="High" value={stats.high} variant="danger" />
-                <CritStat label="Medium" value={stats.medium} variant="warning" />
-                <CritStat label="Low" value={stats.low} variant="neutral" />
-              </div>
-              <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 pt-2 border-t border-gray-100 dark:border-gray-800">
-                <span>{stats.groups} grouping container{stats.groups === 1 ? '' : 's'}</span>
-                <span>{stats.notRequired} without an agent</span>
-              </div>
-            </div>
-          </section>
+        {/* Estate backup status */}
+        {serversReady && (
+          <EstateBackupSummary serverIds={reportingIds} note={estateNote} refreshSignal={refreshSignal} />
         )}
 
         {/* Recent open alerts */}
@@ -213,11 +305,11 @@ export const DashboardOverview: React.FC = () => {
                 <LoadingPanel label="Loading alerts…" />
               ) : openAlertsQuery.error ? (
                 <ErrorState error={openAlertsQuery.error} onRetry={openAlertsQuery.reload} />
-              ) : openAlerts.length === 0 ? (
+              ) : recentOpen.length === 0 ? (
                 <EmptyState icon={ShieldCheck} title="All clear" message="No open alerts right now." />
               ) : (
                 <ul className="divide-y divide-gray-100 dark:divide-gray-800">
-                  {openAlerts.map((a) => (
+                  {recentOpen.map((a) => (
                     <li
                       key={a.id}
                       onClick={() => a.serverId && navigate('servers', a.serverId)}
@@ -253,18 +345,3 @@ export const DashboardOverview: React.FC = () => {
     </div>
   );
 };
-
-const CritStat: React.FC<{ label: string; value: number; variant: 'danger' | 'warning' | 'neutral' }> = ({
-  label,
-  value,
-  variant,
-}) => (
-  <div className="rounded-lg border border-gray-200 dark:border-gray-800 py-3">
-    <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{value}</div>
-    <div className="mt-1 flex justify-center">
-      <Badge variant={variant === 'neutral' ? 'neutral' : (criticalityVariant(label.toUpperCase() as 'HIGH' | 'MEDIUM' | 'LOW'))}>
-        {label}
-      </Badge>
-    </div>
-  </div>
-);
