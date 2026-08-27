@@ -268,9 +268,4 @@ It's functional as-is; code-splitting those routes would address the warning if 
 
 ---
 
-## Further reading
 
-- **[WALKTHROUGH.md](WALKTHROUGH.md)** — full, beginner-friendly tour of the frontend: architecture,
-  startup, routing, auth, every page and component, the domain model, common patterns, and a
-  "how to add a page" recipe.
-- **[src/types.ts](src/types.ts)** — the authoritative list of data shapes shared with the backend.
