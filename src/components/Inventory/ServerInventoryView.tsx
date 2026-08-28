@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useApi } from '../../hooks/useApi';
 import * as serversApi from '../../api/servers';
 import { useAuth } from '../../context/AuthContext';
@@ -10,10 +10,11 @@ import { LoadingPanel } from '../Common/Spinner';
 import { EmptyState } from '../Common/EmptyState';
 import { ErrorState } from '../Common/ErrorState';
 import { ConfirmDialog } from '../Common/ConfirmDialog';
+import { Pagination } from '../Common/Pagination';
 import { VerificationBadge } from '../Servers/VerificationBadge';
 import { ServerForm } from '../Servers/ServerForm';
 import { AgentTokenModal } from '../Servers/AgentTokenModal';
-import { criticalityVariant } from '../../utils/formatters';
+import { criticalityVariant, titleCase } from '../../utils/formatters';
 import {
   Plus,
   Search,
@@ -23,41 +24,77 @@ import {
   KeyRound,
   Layers,
   RotateCcw,
+  Filter,
+  X,
 } from 'lucide-react';
 import type { Server, ServerListFilters, Criticality, ServerOS, VerificationStatus } from '../../types';
 
 const controlClass =
   'px-3 py-2 rounded-md bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors';
 
+const PAGE_SIZE = 10;
+
 export const ServerInventoryView: React.FC = () => {
-  const { can } = useAuth();
+  const { user, can } = useAuth();
   const toast = useToast();
   const canWrite = can('servers:write');
+  const isAdmin = user?.role === 'ADMIN';
 
   const [search, setSearch] = useState('');
-  const [locationText, setLocationText] = useState('');
-  const [departmentText, setDepartmentText] = useState('');
+  const [locationFilter, setLocationFilter] = useState('');
+  const [departmentFilter, setDepartmentFilter] = useState('');
   const [filters, setFilters] = useState<ServerListFilters>({});
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // Fetch all servers once to extract dynamic distinct locations and departments
+  const { data: allServersData } = useApi(() => serversApi.list({}), []);
+  const allServers = allServersData?.servers ?? [];
+
+  const distinctLocations = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of allServers) {
+      if (s.location && s.location.trim()) set.add(s.location.trim());
+    }
+    return Array.from(set).sort();
+  }, [allServers]);
+
+  const distinctDepartments = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of allServers) {
+      if (s.department && s.department.trim()) set.add(s.department.trim());
+    }
+    return Array.from(set).sort();
+  }, [allServers]);
 
   useEffect(() => {
     const t = window.setTimeout(
-      () =>
+      () => {
         setFilters((f) => ({
           ...f,
           name: search.trim() || undefined,
-          location: locationText.trim() || undefined,
-          department: departmentText.trim() || undefined,
-        })),
-      300,
+          location: locationFilter || undefined,
+          department: departmentFilter || undefined,
+        }));
+        setCurrentPage(1);
+      },
+      250,
     );
     return () => window.clearTimeout(t);
-  }, [search, locationText, departmentText]);
+  }, [search, locationFilter, departmentFilter]);
 
   const { data, loading, error, reload } = useApi(
     () => serversApi.list(filters),
     [JSON.stringify(filters)],
   );
   const servers = data?.servers ?? [];
+
+  // Client-side pagination (10 elements per page)
+  const totalServers = servers.length;
+  const totalPages = Math.ceil(totalServers / PAGE_SIZE) || 1;
+  const paginatedServers = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return servers.slice(start, start + PAGE_SIZE);
+  }, [servers, currentPage]);
 
   // Candidate parent groups for the "children of" filter (single-level grouping).
   const { data: rootsData } = useApi(() => serversApi.list({ rootsOnly: true }), []);
@@ -115,8 +152,29 @@ export const ServerInventoryView: React.FC = () => {
     }
   };
 
-  const setFilter = <K extends keyof ServerListFilters>(key: K, value: ServerListFilters[K]) =>
+  const setFilter = <K extends keyof ServerListFilters>(key: K, value: ServerListFilters[K]) => {
     setFilters((f) => ({ ...f, [key]: value || undefined }));
+    setCurrentPage(1);
+  };
+
+  const clearFilters = () => {
+    setSearch('');
+    setLocationFilter('');
+    setDepartmentFilter('');
+    setFilters({});
+    setCurrentPage(1);
+  };
+
+  const hasActiveFilters =
+    search.trim() !== '' ||
+    locationFilter !== '' ||
+    departmentFilter !== '' ||
+    filters.criticality !== undefined ||
+    filters.os !== undefined ||
+    filters.verificationStatus !== undefined ||
+    filters.expectsAgent !== undefined ||
+    filters.parentServerId !== undefined ||
+    filters.rootsOnly !== undefined;
 
   return (
     <div className="space-y-5">
@@ -128,10 +186,10 @@ export const ServerInventoryView: React.FC = () => {
             Server Inventory
           </h2>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            {data ? `${servers.length} server${servers.length === 1 ? '' : 's'}` : 'Registered infrastructure'}
+            {data ? `${servers.length} server${servers.length === 1 ? '' : 's'} registered` : 'Registered infrastructure'}
           </p>
         </div>
-        {canWrite && (
+        {isAdmin && (
           <button
             onClick={openCreate}
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-colors cursor-pointer"
@@ -142,39 +200,67 @@ export const ServerInventoryView: React.FC = () => {
         )}
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap items-center gap-2 bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 rounded-lg shadow-sm p-3">
+      {/* Filters Card */}
+      <div className="flex flex-wrap items-center gap-2.5 bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 rounded-lg shadow-sm p-3.5">
         <div className="relative flex-1 min-w-[180px]">
           <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name…"
-            className={`${controlClass} w-full pl-9`}
+            placeholder="Search by server name, hostname, IP…"
+            className={`${controlClass} w-full pl-9 pr-7`}
           />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
-        <input
-          value={locationText}
-          onChange={(e) => setLocationText(e.target.value)}
-          placeholder="Location…"
+
+        {/* Location Dropdown */}
+        <select
           className={controlClass}
-        />
-        <input
-          value={departmentText}
-          onChange={(e) => setDepartmentText(e.target.value)}
-          placeholder="Department…"
+          value={locationFilter}
+          onChange={(e) => setLocationFilter(e.target.value)}
+        >
+          <option value="">All Locations ({distinctLocations.length})</option>
+          {distinctLocations.map((loc) => (
+            <option key={loc} value={loc}>
+              {loc}
+            </option>
+          ))}
+        </select>
+
+        {/* Department Dropdown */}
+        <select
           className={controlClass}
-        />
+          value={departmentFilter}
+          onChange={(e) => setDepartmentFilter(e.target.value)}
+        >
+          <option value="">All Departments ({distinctDepartments.length})</option>
+          {distinctDepartments.map((dept) => (
+            <option key={dept} value={dept}>
+              {dept}
+            </option>
+          ))}
+        </select>
+
+        {/* Criticality Dropdown */}
         <select
           className={controlClass}
           value={filters.criticality ?? ''}
           onChange={(e) => setFilter('criticality', (e.target.value || undefined) as Criticality)}
         >
-          <option value="">All criticality</option>
+          <option value="">All Criticality</option>
           <option value="HIGH">High</option>
           <option value="MEDIUM">Medium</option>
           <option value="LOW">Low</option>
         </select>
+
+        {/* OS Dropdown */}
         <select
           className={controlClass}
           value={filters.os ?? ''}
@@ -184,6 +270,8 @@ export const ServerInventoryView: React.FC = () => {
           <option value="LINUX">Linux</option>
           <option value="WINDOWS">Windows</option>
         </select>
+
+        {/* Verification Dropdown */}
         <select
           className={controlClass}
           value={filters.verificationStatus ?? ''}
@@ -191,23 +279,27 @@ export const ServerInventoryView: React.FC = () => {
             setFilter('verificationStatus', (e.target.value || undefined) as VerificationStatus)
           }
         >
-          <option value="">All verification</option>
+          <option value="">All Verification</option>
           <option value="VERIFIED">Verified</option>
           <option value="PENDING">Pending</option>
-          <option value="NOT_REQUIRED">No agent</option>
+          <option value="NOT_REQUIRED">No Agent</option>
         </select>
+
+        {/* Agent Expectation Dropdown */}
         <select
           className={controlClass}
           value={filters.expectsAgent === undefined ? '' : filters.expectsAgent ? 'yes' : 'no'}
           onChange={(e) => {
             const v = e.target.value;
             setFilters((f) => ({ ...f, expectsAgent: v === '' ? undefined : v === 'yes' }));
+            setCurrentPage(1);
           }}
         >
-          <option value="">All agents</option>
-          <option value="yes">Expects agent</option>
-          <option value="no">No agent</option>
+          <option value="">All Agent Expectations</option>
+          <option value="yes">Expects Agent</option>
+          <option value="no">No Agent (Pure Group)</option>
         </select>
+
         {groupOptions.length > 0 && (
           <select
             className={controlClass}
@@ -219,9 +311,10 @@ export const ServerInventoryView: React.FC = () => {
                 parentServerId: v,
                 rootsOnly: v ? undefined : f.rootsOnly,
               }));
+              setCurrentPage(1);
             }}
           >
-            <option value="">All groups</option>
+            <option value="">All Groups</option>
             {groupOptions.map((g) => (
               <option key={g.id} value={g.id}>
                 Children of {g.name}
@@ -229,21 +322,33 @@ export const ServerInventoryView: React.FC = () => {
             ))}
           </select>
         )}
-        <label className="flex items-center gap-2 px-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
+
+        <label className="flex items-center gap-1.5 px-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
           <input
             type="checkbox"
             checked={filters.rootsOnly ?? false}
-            onChange={(e) =>
+            onChange={(e) => {
               setFilters((f) => ({
                 ...f,
                 rootsOnly: e.target.checked || undefined,
                 parentServerId: e.target.checked ? undefined : f.parentServerId,
-              }))
-            }
+              }));
+              setCurrentPage(1);
+            }}
             className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500 cursor-pointer"
           />
           Top-level only
         </label>
+
+        {hasActiveFilters && (
+          <button
+            onClick={clearFilters}
+            className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline cursor-pointer ml-auto"
+          >
+            <X className="w-3.5 h-3.5" />
+            Reset filters
+          </button>
+        )}
       </div>
 
       {/* Body */}
@@ -257,12 +362,12 @@ export const ServerInventoryView: React.FC = () => {
             icon={ServerIcon}
             title="No servers found"
             message={
-              Object.values(filters).some((v) => v !== undefined && v !== '')
+              hasActiveFilters
                 ? 'No servers match the current filters.'
                 : 'Add your first server to start monitoring.'
             }
             action={
-              canWrite ? (
+              isAdmin ? (
                 <button
                   onClick={openCreate}
                   className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-colors cursor-pointer"
@@ -277,21 +382,22 @@ export const ServerInventoryView: React.FC = () => {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-800">
+                <tr className="text-left text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/30">
                   <th className="px-4 py-3 font-semibold">Server</th>
                   <th className="px-4 py-3 font-semibold">Type / OS</th>
-                  <th className="px-4 py-3 font-semibold">Department</th>
+                  <th className="px-4 py-3 font-semibold">Department & Location</th>
                   <th className="px-4 py-3 font-semibold">Criticality</th>
-                  <th className="px-4 py-3 font-semibold">Verification</th>
-                  {canWrite && <th className="px-4 py-3 font-semibold text-right">Actions</th>}
+                  <th className="px-4 py-3 font-semibold">Verification Status</th>
+                  <th className="px-4 py-3 font-semibold">Owner</th>
+                  {isAdmin && <th className="px-4 py-3 font-semibold text-right">Actions</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                {servers.map((s) => (
+                {paginatedServers.map((s) => (
                   <tr
                     key={s.id}
                     onClick={() => navigate('servers', s.id)}
-                    className="hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer transition-colors"
+                    className="hover:bg-gray-50/80 dark:hover:bg-gray-800/50 cursor-pointer transition-colors"
                   >
                     <td className="px-4 py-3">
                       <div className="font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-1.5">
@@ -313,12 +419,12 @@ export const ServerInventoryView: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-4 py-3 text-gray-700 dark:text-gray-300">
-                      <div>{s.type}</div>
+                      <div className="font-medium">{titleCase(s.type)}</div>
                       <div className="text-xs text-gray-500 dark:text-gray-400">{s.os}</div>
                     </td>
                     <td className="px-4 py-3 text-gray-700 dark:text-gray-300">
-                      <div>{s.department}</div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400">{s.location}</div>
+                      <div className="font-medium">{s.department || '—'}</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">{s.location || '—'}</div>
                     </td>
                     <td className="px-4 py-3">
                       <Badge variant={criticalityVariant(s.criticality)}>{s.criticality}</Badge>
@@ -326,7 +432,10 @@ export const ServerInventoryView: React.FC = () => {
                     <td className="px-4 py-3">
                       <VerificationBadge status={s.verificationStatus} />
                     </td>
-                    {canWrite && (
+                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400 text-xs">
+                      {s.owner || '—'}
+                    </td>
+                    {isAdmin && (
                       <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1">
                           <button
@@ -359,6 +468,21 @@ export const ServerInventoryView: React.FC = () => {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* Pagination: 10 items max per page */}
+        {servers.length > PAGE_SIZE && (
+          <div className="px-3 border-t border-gray-200 dark:border-gray-800">
+            <Pagination
+              pagination={{
+                page: currentPage,
+                limit: PAGE_SIZE,
+                total: totalServers,
+                totalPages: totalPages,
+              }}
+              onPageChange={(page) => setCurrentPage(page)}
+            />
           </div>
         )}
       </div>

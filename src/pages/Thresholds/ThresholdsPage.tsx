@@ -9,10 +9,24 @@ import { Badge } from '../../components/Common/Badge';
 import { LoadingPanel } from '../../components/Common/Spinner';
 import { EmptyState } from '../../components/Common/EmptyState';
 import { ErrorState } from '../../components/Common/ErrorState';
+import { Pagination } from '../../components/Common/Pagination';
 import { Modal } from '../../components/Common/Modal';
 import { ConfirmDialog } from '../../components/Common/ConfirmDialog';
 import { titleCase } from '../../utils/formatters';
-import { SlidersHorizontal, Plus, Pencil, Trash2, AlertCircle } from 'lucide-react';
+import {
+  SlidersHorizontal,
+  Plus,
+  Pencil,
+  Trash2,
+  AlertCircle,
+  Search,
+  Filter,
+  X,
+  Cpu,
+  HardDrive,
+  Activity,
+  Database,
+} from 'lucide-react';
 import type {
   Threshold,
   ThresholdMetric,
@@ -22,10 +36,13 @@ import type {
 
 const METRICS: ThresholdMetric[] = ['CPU', 'MEMORY', 'DISK', 'BACKUP_AGE_HOURS'];
 
-const inputClass =
-  'w-full px-3 py-2 rounded-md bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors';
+const controlClass =
+  'px-3 py-2 rounded-md bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors';
+const inputClass = `w-full ${controlClass}`;
 const labelClass =
   'block text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1';
+
+const PAGE_SIZE = 10;
 
 function unitFor(metric: ThresholdMetric): string {
   return metric === 'BACKUP_AGE_HOURS' ? 'h' : '%';
@@ -33,6 +50,19 @@ function unitFor(metric: ThresholdMetric): string {
 
 function formatValue(metric: ThresholdMetric, value: number): string {
   return `${value}${unitFor(metric)}`;
+}
+
+function metricIcon(metric: ThresholdMetric): React.ElementType {
+  switch (metric) {
+    case 'CPU':
+      return Cpu;
+    case 'MEMORY':
+      return Activity;
+    case 'DISK':
+      return HardDrive;
+    case 'BACKUP_AGE_HOURS':
+      return Database;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -65,7 +95,6 @@ const ThresholdFormModal: React.FC<{
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  // Reset the form whenever the modal opens or its target changes.
   const key = threshold?.id ?? 'new';
   const [lastKey, setLastKey] = useState(key);
   const [prevOpen, setPrevOpen] = useState(open);
@@ -267,17 +296,37 @@ export const ThresholdsPage: React.FC = () => {
   const { data, loading, error, reload } = useApi(() => thresholdsApi.list(), []);
   const thresholds = data?.thresholds ?? [];
 
+  const [search, setSearch] = useState('');
+  const [metricFilter, setMetricFilter] = useState('');
+  const [scopeFilter, setScopeFilter] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Threshold | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Threshold | null>(null);
 
-  const sorted = useMemo(
-    () =>
-      [...thresholds].sort(
-        (a, b) => a.metric.localeCompare(b.metric) || a.scope.localeCompare(b.scope),
-      ),
-    [thresholds],
-  );
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return thresholds.filter((t) => {
+      if (q) {
+        const metricMatch = t.metric.toLowerCase().includes(q);
+        const serverMatch = t.server?.name.toLowerCase().includes(q) || t.server?.ipOrHostname.toLowerCase().includes(q);
+        const scopeMatch = t.scope.toLowerCase().includes(q);
+        const valueMatch = String(t.warningValue).includes(q) || String(t.criticalValue).includes(q);
+        if (!metricMatch && !serverMatch && !scopeMatch && !valueMatch) return false;
+      }
+      if (metricFilter && t.metric !== metricFilter) return false;
+      if (scopeFilter && t.scope !== scopeFilter) return false;
+      return true;
+    }).sort((a, b) => a.metric.localeCompare(b.metric) || a.scope.localeCompare(b.scope));
+  }, [thresholds, search, metricFilter, scopeFilter]);
+
+  const totalFiltered = filtered.length;
+  const totalPages = Math.ceil(totalFiltered / PAGE_SIZE) || 1;
+  const paginated = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filtered.slice(start, start + PAGE_SIZE);
+  }, [filtered, currentPage]);
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
@@ -291,6 +340,15 @@ export const ThresholdsPage: React.FC = () => {
       setDeleteTarget(null);
     }
   };
+
+  const clearFilters = () => {
+    setSearch('');
+    setMetricFilter('');
+    setScopeFilter('');
+    setCurrentPage(1);
+  };
+
+  const hasActiveFilters = search.trim() !== '' || metricFilter !== '' || scopeFilter !== '';
 
   return (
     <div className="space-y-5">
@@ -318,82 +376,188 @@ export const ThresholdsPage: React.FC = () => {
         )}
       </div>
 
+      {/* Search & Filter Card */}
+      <div className="flex flex-wrap items-center gap-2.5 bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 rounded-lg shadow-sm p-3.5">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setCurrentPage(1);
+            }}
+            placeholder="Search metric, server name, scope, values…"
+            className={`${controlClass} w-full pl-9 pr-7 text-xs`}
+          />
+          {search && (
+            <button
+              onClick={() => {
+                setSearch('');
+                setCurrentPage(1);
+              }}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        {/* Metric Filter Dropdown */}
+        <select
+          className={`${controlClass} text-xs`}
+          value={metricFilter}
+          onChange={(e) => {
+            setMetricFilter(e.target.value);
+            setCurrentPage(1);
+          }}
+        >
+          <option value="">All Metrics</option>
+          {METRICS.map((m) => (
+            <option key={m} value={m}>
+              {titleCase(m)}
+            </option>
+          ))}
+        </select>
+
+        {/* Scope Filter Dropdown */}
+        <select
+          className={`${controlClass} text-xs`}
+          value={scopeFilter}
+          onChange={(e) => {
+            setScopeFilter(e.target.value);
+            setCurrentPage(1);
+          }}
+        >
+          <option value="">All Scopes</option>
+          <option value="GLOBAL">Global</option>
+          <option value="SERVER">Server-Specific</option>
+        </select>
+
+        {hasActiveFilters && (
+          <button
+            onClick={clearFilters}
+            className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline cursor-pointer ml-auto"
+          >
+            <X className="w-3.5 h-3.5" />
+            Reset filters
+          </button>
+        )}
+      </div>
+
+      {/* Body Table */}
       <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 rounded-lg shadow-sm overflow-hidden">
         {loading ? (
           <LoadingPanel label="Loading thresholds…" />
         ) : error ? (
           <ErrorState error={error} onRetry={reload} />
-        ) : sorted.length === 0 ? (
+        ) : filtered.length === 0 ? (
           <EmptyState
             icon={SlidersHorizontal}
-            title="No thresholds"
-            message="No alert thresholds are configured yet."
+            title="No thresholds found"
+            message={
+              hasActiveFilters
+                ? 'No alert thresholds match your search criteria.'
+                : 'No alert thresholds are configured yet.'
+            }
+            action={
+              hasActiveFilters ? (
+                <button
+                  onClick={clearFilters}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors cursor-pointer"
+                >
+                  Reset filters
+                </button>
+              ) : undefined
+            }
           />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-800">
+                <tr className="text-left text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/30">
                   <th className="px-4 py-3 font-semibold">Metric</th>
-                  <th className="px-4 py-3 font-semibold">Scope</th>
-                  <th className="px-4 py-3 font-semibold">Warning</th>
-                  <th className="px-4 py-3 font-semibold">Critical</th>
+                  <th className="px-4 py-3 font-semibold">Scope & Target</th>
+                  <th className="px-4 py-3 font-semibold">Warning Threshold</th>
+                  <th className="px-4 py-3 font-semibold">Critical Threshold</th>
                   {canWrite && <th className="px-4 py-3 font-semibold text-right">Actions</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                {sorted.map((t) => (
-                  <tr key={t.id}>
-                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">
-                      {titleCase(t.metric)}
-                    </td>
-                    <td className="px-4 py-3">
-                      {t.scope === 'GLOBAL' ? (
-                        <Badge variant="info">Global</Badge>
-                      ) : (
-                        <div>
-                          <Badge variant="neutral">Server</Badge>
-                          {t.server && (
-                            <span className="ml-2 text-xs text-gray-600 dark:text-gray-400">
-                              {t.server.name}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-amber-600 dark:text-amber-400 font-semibold">
-                      {formatValue(t.metric, t.warningValue)}
-                    </td>
-                    <td className="px-4 py-3 text-red-600 dark:text-red-400 font-semibold">
-                      {formatValue(t.metric, t.criticalValue)}
-                    </td>
-                    {canWrite && (
-                      <td className="px-4 py-3">
-                        <div className="flex items-center justify-end gap-1">
-                          <button
-                            onClick={() => {
-                              setEditing(t);
-                              setFormOpen(true);
-                            }}
-                            title="Edit"
-                            className="p-1.5 rounded text-gray-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors cursor-pointer"
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => setDeleteTarget(t)}
-                            title="Delete"
-                            className="p-1.5 rounded text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                {paginated.map((t) => {
+                  const Icon = metricIcon(t.metric);
+                  return (
+                    <tr key={t.id} className="hover:bg-gray-50/80 dark:hover:bg-gray-800/50 transition-colors">
+                      <td className="px-4 py-3.5 font-medium text-gray-900 dark:text-gray-100">
+                        <div className="flex items-center gap-2">
+                          <span className="p-1 rounded bg-blue-50 dark:bg-blue-950/50 text-blue-600">
+                            <Icon className="w-4 h-4" />
+                          </span>
+                          <span>{titleCase(t.metric)}</span>
                         </div>
                       </td>
-                    )}
-                  </tr>
-                ))}
+                      <td className="px-4 py-3.5">
+                        {t.scope === 'GLOBAL' ? (
+                          <Badge variant="info">Global (Estate-wide)</Badge>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <Badge variant="neutral">Server Override</Badge>
+                            {t.server && (
+                              <span className="text-xs font-semibold text-gray-800 dark:text-gray-200">
+                                {t.server.name} ({t.server.ipOrHostname})
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3.5 text-amber-600 dark:text-amber-400 font-semibold font-mono">
+                        {formatValue(t.metric, t.warningValue)}
+                      </td>
+                      <td className="px-4 py-3.5 text-red-600 dark:text-red-400 font-semibold font-mono">
+                        {formatValue(t.metric, t.criticalValue)}
+                      </td>
+                      {canWrite && (
+                        <td className="px-4 py-3.5">
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              onClick={() => {
+                                setEditing(t);
+                                setFormOpen(true);
+                              }}
+                              title="Edit"
+                              className="p-1.5 rounded text-gray-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors cursor-pointer"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => setDeleteTarget(t)}
+                              title="Delete"
+                              className="p-1.5 rounded text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* Pagination: 10 items max per page */}
+        {filtered.length > PAGE_SIZE && (
+          <div className="px-3 border-t border-gray-200 dark:border-gray-800">
+            <Pagination
+              pagination={{
+                page: currentPage,
+                limit: PAGE_SIZE,
+                total: totalFiltered,
+                totalPages: totalPages,
+              }}
+              onPageChange={(page) => setCurrentPage(page)}
+            />
           </div>
         )}
       </div>

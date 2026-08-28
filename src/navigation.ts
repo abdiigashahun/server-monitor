@@ -2,6 +2,7 @@ import { LucideIcon } from 'lucide-react';
 import {
   LayoutDashboard,
   Server,
+  Database,
   BellRing,
   SlidersHorizontal,
   BarChart3,
@@ -25,6 +26,7 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, section: 'core' },
   { id: 'servers', label: 'Server Inventory', icon: Server, permission: 'servers:read', section: 'core' },
+  { id: 'backups', label: 'Backup Status', icon: Database, permission: 'servers:read', section: 'core' },
   { id: 'alerts', label: 'Alerts', icon: BellRing, permission: 'alerts:read', section: 'core' },
   { id: 'thresholds', label: 'Thresholds', icon: SlidersHorizontal, permission: 'thresholds:read', section: 'core' },
   { id: 'reports', label: 'Reports', icon: BarChart3, permission: 'reports:read', section: 'core' },
@@ -39,6 +41,6 @@ export const NAV_BY_ID: Record<string, NavItem> = Object.fromEntries(
 
 // Server detail lives under the servers tab and shares its permission.
 export function permissionForRoute(tab: string): PermissionKey | undefined {
-  if (tab === 'servers') return 'servers:read';
+  if (tab === 'servers' || tab === 'backups') return 'servers:read';
   return NAV_BY_ID[tab]?.permission;
 }

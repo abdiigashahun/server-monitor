@@ -13,6 +13,7 @@ import { DashboardOverview } from './components/Dashboard/DashboardOverview';
 import { ServerInventoryView } from './components/Inventory/ServerInventoryView';
 import { ServerDetailView } from './pages/Servers/ServerDetailView';
 import { AlertsPage } from './pages/Alerts/AlertsPage';
+import { BackupStatusPage } from './pages/Backups/BackupStatusPage';
 import { ThresholdsPage } from './pages/Thresholds/ThresholdsPage';
 import { ReportsPage } from './pages/Reports/ReportsPage';
 import { UsersPage } from './pages/Users/UsersPage';
@@ -35,6 +36,8 @@ function renderPage(route: Route): React.ReactNode {
       return <DashboardOverview />;
     case 'servers':
       return route.id ? <ServerDetailView serverId={route.id} /> : <ServerInventoryView />;
+    case 'backups':
+      return <BackupStatusPage />;
     case 'alerts':
       return <AlertsPage serverId={route.id} />;
     case 'thresholds':

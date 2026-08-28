@@ -182,9 +182,10 @@ const SectionCard: React.FC<{ title: string; children: React.ReactNode; actions?
 
 // --- main ------------------------------------------------------------------
 export const ServerDetailView: React.FC<ServerDetailViewProps> = ({ serverId }) => {
-  const { can } = useAuth();
+  const { user, can } = useAuth();
   const toast = useToast();
   const canWrite = can('servers:write');
+  const isAdmin = user?.role === 'ADMIN';
   const canReadAlerts = can('alerts:read');
   const [range, setRange] = useState<Range>('7d');
   const [editing, setEditing] = useState(false);
@@ -268,9 +269,9 @@ export const ServerDetailView: React.FC<ServerDetailViewProps> = ({ serverId }) 
               {server.ipOrHostname} · {server.type} · {server.os}
             </p>
           </div>
-          {canWrite && (
+          {isAdmin && (
             <div className="flex items-center gap-2 flex-wrap">
-              {isGroup && (
+              {isGroup && isAdmin && (
                 <button
                   onClick={() => setCreatingChild(true)}
                   className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 text-sm font-semibold hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors cursor-pointer"
@@ -604,6 +605,7 @@ const SingleBackups: React.FC<{ backups: ServerBackups }> = ({
                 <th className="px-3 py-2 font-semibold">Size</th>
                 <th className="px-3 py-2 font-semibold">Started</th>
                 <th className="px-3 py-2 font-semibold">Completed</th>
+                <th className="px-3 py-2 font-semibold">Storage Location</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -616,9 +618,12 @@ const SingleBackups: React.FC<{ backups: ServerBackups }> = ({
                       <Badge variant={backupStatusVariant(b.status)}>{titleCase(b.status)}</Badge>
                     </td>
                     <td className="px-3 py-2 text-gray-700 dark:text-gray-300">{titleCase(b.backupType)}</td>
-                    <td className="px-3 py-2 text-gray-700 dark:text-gray-300">{formatBytes(b.sizeBytes)}</td>
+                    <td className="px-3 py-2 text-gray-700 dark:text-gray-300 font-mono">{formatBytes(b.sizeBytes)}</td>
                     <td className="px-3 py-2 text-gray-700 dark:text-gray-300">{formatDateTime(b.startedAt)}</td>
                     <td className="px-3 py-2 text-gray-700 dark:text-gray-300">{formatDateTime(b.completedAt)}</td>
+                    <td className="px-3 py-2 font-mono text-xs text-gray-500 dark:text-gray-400 max-w-[200px] truncate" title={b.location}>
+                      {b.location || '—'}
+                    </td>
                   </tr>
                 ))}
             </tbody>

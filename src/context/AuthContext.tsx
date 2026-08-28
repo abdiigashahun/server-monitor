@@ -22,7 +22,7 @@ interface AuthContextValue {
   user: AuthUser | null;
   status: AuthStatus;
   isAuthenticated: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, rememberMe?: boolean) => Promise<void>;
   logout: () => Promise<void>;
   /** True only when the user's permission map explicitly grants the key. */
   can: (permission: PermissionKey | string) => boolean;
@@ -69,9 +69,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const login = useCallback(async (email: string, password: string) => {
+  const login = useCallback(async (email: string, password: string, rememberMe: boolean = true) => {
     const payload = await authApi.login(email, password);
-    setTokens(payload.accessToken, payload.refreshToken);
+    setTokens(payload.accessToken, payload.refreshToken, rememberMe);
     setUser(payload.user);
     setStatus('authenticated');
   }, []);
