@@ -8,8 +8,7 @@ backend API to display server health, alerts, backups, thresholds, reports, user
 > backend by **agents** installed on each monitored server; this frontend reads and manages that data
 > through the backend's REST API.
 
-**New to the codebase?** Read [WALKTHROUGH.md](WALKTHROUGH.md) — a step-by-step tour of the entire
-frontend written for someone who has never seen the code.
+
 
 ---
 
