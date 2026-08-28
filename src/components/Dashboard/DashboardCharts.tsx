@@ -12,10 +12,11 @@ import {
   CartesianGrid,
   Legend,
 } from 'recharts';
-import { RefreshCw, Cpu, Database, type LucideIcon } from 'lucide-react';
+import { RefreshCw, Cpu, Database, ArrowRight, type LucideIcon } from 'lucide-react';
 import { useApi } from '../../hooks/useApi';
 import * as serversApi from '../../api/servers';
 import { useTheme } from '../../context/ThemeContext';
+import { navigate } from '../../router';
 import { LoadingPanel } from '../Common/Spinner';
 import { ErrorState } from '../Common/ErrorState';
 import { EmptyState } from '../Common/EmptyState';
@@ -91,7 +92,8 @@ export const DonutCard: React.FC<{
   centerLabel?: string;
   emptyMessage?: string;
   footnote?: string;
-}> = ({ title, icon: Icon, slices, centerLabel, emptyMessage, footnote }) => {
+  action?: React.ReactNode;
+}> = ({ title, icon: Icon, slices, centerLabel, emptyMessage, footnote, action }) => {
   const { theme } = useTheme();
   const tooltipBg = theme === 'dark' ? '#111827' : '#FFFFFF';
   const grid = theme === 'dark' ? '#1F2937' : '#E5E7EB';
@@ -100,11 +102,12 @@ export const DonutCard: React.FC<{
 
   return (
     <section className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 rounded-lg shadow-sm">
-      <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-800">
+      <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
         <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
           {Icon && <Icon className="w-4 h-4 text-blue-600" />}
           {title}
         </h3>
+        {action}
       </div>
       <div className="p-5">
         {total === 0 ? (
@@ -381,6 +384,14 @@ export const EstateBackupSummary: React.FC<{
       centerLabel="servers"
       emptyMessage="No servers with an agent to check backups for."
       footnote={note}
+      action={
+        <button
+          onClick={() => navigate('backups')}
+          className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer inline-flex items-center gap-1"
+        >
+          View all <ArrowRight className="w-3 h-3" />
+        </button>
+      }
     />
   );
 };

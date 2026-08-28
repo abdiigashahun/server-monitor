@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useApi } from '../../hooks/useApi';
 import * as usersApi from '../../api/users';
 import type { UserListFilters } from '../../api/users';
@@ -10,8 +10,10 @@ import { Badge, BadgeVariant } from '../../components/Common/Badge';
 import { LoadingPanel } from '../../components/Common/Spinner';
 import { EmptyState } from '../../components/Common/EmptyState';
 import { ErrorState } from '../../components/Common/ErrorState';
+import { Pagination } from '../../components/Common/Pagination';
 import { Modal } from '../../components/Common/Modal';
 import { ConfirmDialog } from '../../components/Common/ConfirmDialog';
+import { formatTimestamp, formatDateTime } from '../../utils/formatters';
 import {
   Users as UsersIcon,
   Plus,
@@ -22,6 +24,8 @@ import {
   Copy,
   Check,
   KeyRound,
+  ShieldCheck,
+  X,
 } from 'lucide-react';
 import type { User, Role, CreateUserInput, UpdateUserInput } from '../../types';
 
@@ -32,6 +36,8 @@ const controlClass =
 const inputClass = `w-full ${controlClass}`;
 const labelClass =
   'block text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1';
+
+const PAGE_SIZE = 10;
 
 function roleVariant(role: Role): BadgeVariant {
   switch (role) {
@@ -301,11 +307,15 @@ export const UsersPage: React.FC = () => {
 
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState<UserListFilters>({});
+  const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     const t = window.setTimeout(
-      () => setFilters((f) => ({ ...f, name: search.trim() || undefined })),
-      300,
+      () => {
+        setFilters((f) => ({ ...f, name: search.trim() || undefined }));
+        setCurrentPage(1);
+      },
+      250,
     );
     return () => window.clearTimeout(t);
   }, [search]);
@@ -321,6 +331,13 @@ export const UsersPage: React.FC = () => {
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
   const [credential, setCredential] = useState<{ email: string; password: string } | null>(null);
 
+  const totalUsers = users.length;
+  const totalPages = Math.ceil(totalUsers / PAGE_SIZE) || 1;
+  const paginatedUsers = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return users.slice(start, start + PAGE_SIZE);
+  }, [users, currentPage]);
+
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     try {
@@ -334,6 +351,14 @@ export const UsersPage: React.FC = () => {
     }
   };
 
+  const clearFilters = () => {
+    setSearch('');
+    setFilters({});
+    setCurrentPage(1);
+  };
+
+  const hasActiveFilters = search.trim() !== '' || filters.role !== undefined;
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -343,7 +368,7 @@ export const UsersPage: React.FC = () => {
             Users
           </h2>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            Accounts and roles. Only administrators can manage users.
+            Accounts, access privileges, and RBAC roles.
           </p>
         </div>
         {canWrite && (
@@ -360,28 +385,49 @@ export const UsersPage: React.FC = () => {
         )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 rounded-lg shadow-sm p-3">
+      <div className="flex flex-wrap items-center gap-2.5 bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 rounded-lg shadow-sm p-3.5">
         <div className="relative flex-1 min-w-[180px]">
           <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name…"
-            className={`${controlClass} w-full pl-9`}
+            placeholder="Search by name or email…"
+            className={`${controlClass} w-full pl-9 pr-7 text-xs`}
           />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
         <select
-          className={controlClass}
+          className={`${controlClass} text-xs`}
           value={filters.role ?? ''}
-          onChange={(e) => setFilters((f) => ({ ...f, role: (e.target.value || undefined) as Role }))}
+          onChange={(e) => {
+            setFilters((f) => ({ ...f, role: (e.target.value || undefined) as Role }));
+            setCurrentPage(1);
+          }}
         >
-          <option value="">All roles</option>
+          <option value="">All Roles</option>
           {ROLES.map((r) => (
             <option key={r} value={r}>
               {r.charAt(0) + r.slice(1).toLowerCase()}
             </option>
           ))}
         </select>
+
+        {hasActiveFilters && (
+          <button
+            onClick={clearFilters}
+            className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline cursor-pointer ml-auto"
+          >
+            <X className="w-3.5 h-3.5" />
+            Reset filters
+          </button>
+        )}
       </div>
 
       <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 rounded-lg shadow-sm overflow-hidden">
@@ -395,35 +441,74 @@ export const UsersPage: React.FC = () => {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-800">
-                  <th className="px-4 py-3 font-semibold">Name</th>
+                <tr className="text-left text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/30">
+                  <th className="px-4 py-3 font-semibold">User</th>
                   <th className="px-4 py-3 font-semibold">Email</th>
                   <th className="px-4 py-3 font-semibold">Role</th>
+                  <th className="px-4 py-3 font-semibold">Active Permissions</th>
+                  <th className="px-4 py-3 font-semibold">Created</th>
                   {canWrite && <th className="px-4 py-3 font-semibold text-right">Actions</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                {users.map((u) => {
+                {paginatedUsers.map((u) => {
                   const isSelf = u.id === currentUser?.id;
+                  const activePerms = Object.entries(u.permissions || {})
+                    .filter(([, val]) => Boolean(val))
+                    .map(([key]) => key);
+
                   return (
-                    <tr key={u.id}>
-                      <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">
-                        {u.name}
-                        {isSelf && <span className="ml-2 text-[10px] text-gray-400">(you)</span>}
+                    <tr key={u.id} className="hover:bg-gray-50/80 dark:hover:bg-gray-800/50 transition-colors">
+                      <td className="px-4 py-3.5 font-medium text-gray-900 dark:text-gray-100">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold shrink-0">
+                            {u.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <div className="font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-1.5">
+                              {u.name}
+                              {isSelf && <span className="text-[10px] text-blue-500 font-normal">(you)</span>}
+                            </div>
+                          </div>
+                        </div>
                       </td>
-                      <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{u.email}</td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3.5 text-gray-700 dark:text-gray-300 font-mono text-xs">{u.email}</td>
+                      <td className="px-4 py-3.5">
                         <Badge variant={roleVariant(u.role)}>{u.role}</Badge>
                       </td>
+                      <td className="px-4 py-3.5">
+                        <div className="flex flex-wrap gap-1 max-w-[280px]">
+                          {activePerms.length > 0 ? (
+                            activePerms.slice(0, 3).map((p) => (
+                              <span
+                                key={p}
+                                className="px-1.5 py-0.5 rounded text-[10px] bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 font-mono"
+                              >
+                                {p}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-xs text-gray-400">—</span>
+                          )}
+                          {activePerms.length > 3 && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] bg-gray-100 dark:bg-gray-800 text-gray-500 font-mono">
+                              +{activePerms.length - 3} more
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3.5 text-xs text-gray-500 whitespace-nowrap">
+                        {u.createdAt ? formatTimestamp(u.createdAt) : '—'}
+                      </td>
                       {canWrite && (
-                        <td className="px-4 py-3">
+                        <td className="px-4 py-3.5">
                           <div className="flex items-center justify-end gap-1">
                             <button
                               onClick={() => {
                                 setEditing(u);
                                 setFormOpen(true);
                               }}
-                              title="Edit"
+                              title="Edit user"
                               className="p-1.5 rounded text-gray-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors cursor-pointer"
                             >
                               <Pencil className="w-4 h-4" />
@@ -444,6 +529,21 @@ export const UsersPage: React.FC = () => {
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* Pagination: 10 items max per page */}
+        {users.length > PAGE_SIZE && (
+          <div className="px-3 border-t border-gray-200 dark:border-gray-800">
+            <Pagination
+              pagination={{
+                page: currentPage,
+                limit: PAGE_SIZE,
+                total: totalUsers,
+                totalPages: totalPages,
+              }}
+              onPageChange={(page) => setCurrentPage(page)}
+            />
           </div>
         )}
       </div>

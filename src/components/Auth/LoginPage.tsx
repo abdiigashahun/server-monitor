@@ -8,19 +8,35 @@ import {
   ShieldCheck,
   Eye,
   EyeOff,
-  Server,
   KeyRound,
   AlertCircle,
   ArrowRight,
   Terminal,
+  CheckSquare,
 } from 'lucide-react';
+
+const REMEMBERED_EMAIL_KEY = 'sm_remembered_email';
+const REMEMBER_ME_KEY = 'sm_remember_me';
 
 export const LoginPage: React.FC = () => {
   const { login } = useAuth();
 
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(() => {
+    try {
+      return localStorage.getItem(REMEMBERED_EMAIL_KEY) || '';
+    } catch {
+      return '';
+    }
+  });
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(() => {
+    try {
+      return localStorage.getItem(REMEMBER_ME_KEY) === 'true';
+    } catch {
+      return true;
+    }
+  });
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -38,7 +54,20 @@ export const LoginPage: React.FC = () => {
     setIsLoading(true);
     setErrorMsg(null);
     try {
-      await login(email.trim(), password);
+      // Save or clear remembered email
+      try {
+        if (rememberMe) {
+          localStorage.setItem(REMEMBERED_EMAIL_KEY, email.trim());
+          localStorage.setItem(REMEMBER_ME_KEY, 'true');
+        } else {
+          localStorage.removeItem(REMEMBERED_EMAIL_KEY);
+          localStorage.removeItem(REMEMBER_ME_KEY);
+        }
+      } catch {
+        // ignore storage errors
+      }
+
+      await login(email.trim(), password, rememberMe);
     } catch (err) {
       if (err instanceof ApiError) {
         setErrorMsg(
@@ -58,36 +87,36 @@ export const LoginPage: React.FC = () => {
     <div className="min-h-screen w-full bg-[#070B12] text-white flex flex-col justify-between relative overflow-hidden font-sans">
       {/* Background decorative grid & glowing orbs */}
       <div className="absolute inset-0 bg-[linear-gradient(to_right,#1f293d15_1px,transparent_1px),linear-gradient(to_bottom,#1f293d15_1px,transparent_1px)] bg-[size:4rem_4rem] pointer-events-none" />
-      <div className="absolute -top-40 -left-40 w-96 h-96 bg-blue-600/15 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-indigo-600/15 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute -top-40 -left-40 w-96 h-96 bg-emerald-600/15 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-blue-600/15 rounded-full blur-3xl pointer-events-none" />
 
-      {/* Top classification bar */}
+      {/* Top classification bar with Official Logo */}
       <header className="relative z-10 w-full border-b border-gray-800/80 bg-[#0B0F17]/90 backdrop-blur-md px-6 py-3 flex items-center justify-between">
         <div className="flex items-center space-x-3">
-          <ITDBLogo size="sm" showSubtext={false} />
-          <span className="text-gray-600 font-mono text-xs">|</span>
-          <span className="text-[11px] font-mono font-semibold tracking-wider text-gray-400 uppercase">
-            Federal Unified Data Operations Portal
-          </span>
+          <ITDBLogo size="sm" showSubtext={true} />
         </div>
-        <div className="bg-amber-950/40 border border-amber-800/50 text-amber-300 rounded px-2 py-0.5 text-[10px] font-bold tracking-widest uppercase">
+        <div className="bg-amber-950/40 border border-amber-800/50 text-amber-300 rounded px-2.5 py-1 text-[10px] font-bold tracking-widest uppercase">
           Restricted System (ISO 27001)
         </div>
       </header>
 
       {/* Login box */}
       <main className="relative z-10 flex-1 flex items-center justify-center p-4 sm:p-6 my-4">
-        <div className="w-full max-w-md bg-[#0F172A]/90 border border-gray-800 rounded-xl shadow-2xl backdrop-blur-xl p-6 sm:p-8 space-y-6">
-          <div className="text-center space-y-1.5">
-            <div className="inline-flex p-3 bg-blue-600/10 border border-blue-500/20 rounded-xl text-blue-400 shadow-inner mb-1">
-              <Server className="w-7 h-7" />
+        <div className="w-full max-w-md bg-[#0F172A]/90 border border-gray-800 rounded-xl shadow-2xl backdrop-blur-xl p-6 sm:p-8 space-y-5">
+          {/* Official ITDB Logo Header */}
+          <div className="text-center flex flex-col items-center space-y-3">
+            <div className="p-3.5 bg-gradient-to-b from-[#0F6B58]/20 to-transparent border border-[#00A896]/30 rounded-2xl shadow-lg shadow-[#00A896]/10 flex items-center justify-center">
+              <ITDBLogo size="lg" showSubtext={false} />
             </div>
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
-              ITDB Server Monitoring Portal
-            </h1>
-            <p className="text-xs text-gray-400">
-              Sign in with your credentials to access infrastructure telemetry.
-            </p>
+            <div className="space-y-1">
+              <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-white flex items-center justify-center gap-2">
+                <span className="text-[#00D0B4]">ITDB</span>
+                <span>Server Monitor</span>
+              </h1>
+              <p className="text-xs text-gray-400 font-medium">
+                Innovation and Technology Bureau — Operations Gateway
+              </p>
+            </div>
           </div>
 
           {errorMsg && (
@@ -100,7 +129,7 @@ export const LoginPage: React.FC = () => {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
               <label className="block text-xs font-semibold text-gray-300 uppercase tracking-wider">
-                Email
+                Email Address
               </label>
               <div className="relative">
                 <Mail className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -110,7 +139,7 @@ export const LoginPage: React.FC = () => {
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@itdb.gov.et"
                   autoComplete="username"
-                  className="w-full bg-[#070D18] border border-gray-700 rounded-md pl-9 pr-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                  className="w-full bg-[#070D18] border border-gray-700 rounded-md pl-9 pr-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all"
                   required
                 />
               </div>
@@ -128,7 +157,7 @@ export const LoginPage: React.FC = () => {
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Enter your password"
                   autoComplete="current-password"
-                  className="w-full bg-[#070D18] border border-gray-700 rounded-md pl-9 pr-10 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                  className="w-full bg-[#070D18] border border-gray-700 rounded-md pl-9 pr-10 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all"
                   required
                 />
                 <button
@@ -142,10 +171,26 @@ export const LoginPage: React.FC = () => {
               </div>
             </div>
 
+            {/* Remember Me Option */}
+            <div className="flex items-center justify-between text-xs pt-0.5">
+              <label className="flex items-center gap-2 text-gray-300 hover:text-white cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="w-4 h-4 rounded border-gray-700 bg-[#070D18] text-emerald-600 focus:ring-emerald-500 focus:ring-offset-gray-900 transition-colors cursor-pointer accent-emerald-500"
+                />
+                <span className="font-medium text-gray-300">Remember me</span>
+              </label>
+              <span className="text-[11px] text-gray-500 font-mono">
+                Persistent session
+              </span>
+            </div>
+
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-2.5 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-sm rounded-md shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2 transition-all transform active:scale-[0.99] disabled:opacity-50 cursor-pointer"
+              className="w-full py-2.5 px-4 bg-gradient-to-r from-emerald-600 via-teal-600 to-blue-600 hover:from-emerald-500 hover:to-blue-500 text-white font-bold text-sm rounded-md shadow-lg shadow-teal-600/30 flex items-center justify-center gap-2 transition-all transform active:scale-[0.99] disabled:opacity-50 cursor-pointer"
             >
               {isLoading ? (
                 <>
@@ -180,7 +225,7 @@ export const LoginPage: React.FC = () => {
 
       <footer className="relative z-10 w-full border-t border-gray-800/80 bg-[#0B0F17]/90 px-6 py-3 flex flex-col sm:flex-row items-center justify-between text-gray-500 text-xs gap-2">
         <div className="flex items-center space-x-2">
-          <span className="w-2 h-2 rounded-full bg-blue-500" />
+          <span className="w-2 h-2 rounded-full bg-emerald-500" />
           <span>Government Enterprise Cloud Infrastructure &amp; Telemetry Gateway</span>
         </div>
         <div className="font-mono text-[10px] text-gray-500">ITDB Server Monitor</div>
