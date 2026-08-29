@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useApi } from '../../hooks/useApi';
 import * as serversApi from '../../api/servers';
+import { adminPing } from '../../api/adminPing';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { navigate } from '../../router';
@@ -26,6 +27,7 @@ import {
   RotateCcw,
   Filter,
   X,
+  Activity,
 } from 'lucide-react';
 import type { Server, ServerListFilters, Criticality, ServerOS, VerificationStatus } from '../../types';
 
@@ -114,6 +116,15 @@ export const ServerInventoryView: React.FC = () => {
   const openEdit = (server: Server) => {
     setEditing(server);
     setFormOpen(true);
+  };
+
+  const handlePing = async (server: Server) => {
+    try {
+      const res = await adminPing();
+      toast.success('Admin Ping Successful', `${server.name}: ${res.message}`);
+    } catch (err) {
+      toast.error('Ping Failed', err instanceof ApiError ? err.message : 'Unable to verify admin access');
+    }
   };
 
   const handleSaved = (saved: Server, agentToken?: string | null) => {
@@ -438,6 +449,13 @@ export const ServerInventoryView: React.FC = () => {
                     {isAdmin && (
                       <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => handlePing(s)}
+                            title="Admin ping check"
+                            className="p-1.5 rounded text-gray-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors cursor-pointer"
+                          >
+                            <Activity className="w-4 h-4" />
+                          </button>
                           <button
                             onClick={() => openEdit(s)}
                             title="Edit"
