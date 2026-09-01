@@ -26,6 +26,9 @@ import {
   HardDrive,
   Activity,
   Database,
+  Eye,
+  Info,
+  ShieldAlert,
 } from 'lucide-react';
 import type {
   Threshold,
@@ -288,10 +291,87 @@ const ThresholdFormModal: React.FC<{
 };
 
 // ---------------------------------------------------------------------------
+const ThresholdDetailModal: React.FC<{
+  open: boolean;
+  threshold: Threshold | null;
+  onClose: () => void;
+}> = ({ open, threshold, onClose }) => {
+  if (!threshold) return null;
+  const Icon = metricIcon(threshold.metric);
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Alert Threshold Details"
+      subtitle="Read-only view for monitored metric triggers."
+      size="md"
+      footer={
+        <button
+          type="button"
+          onClick={onClose}
+          className="px-4 py-1.5 text-xs font-semibold rounded-md bg-blue-600 hover:bg-blue-700 text-white transition-colors cursor-pointer"
+        >
+          Close
+        </button>
+      }
+    >
+      <div className="space-y-4 text-sm">
+        <div className="flex items-center gap-3 p-3.5 rounded-lg bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700">
+          <div className="p-2.5 rounded-md bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400">
+            <Icon className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500">Metric</div>
+            <div className="text-base font-bold text-gray-900 dark:text-gray-100">{titleCase(threshold.metric)}</div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="p-3.5 rounded-lg border border-amber-200 dark:border-amber-900/50 bg-amber-50/50 dark:bg-amber-950/20">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400">Warning Trigger</div>
+            <div className="mt-1 text-xl font-extrabold text-amber-600 dark:text-amber-400 font-mono">
+              {formatValue(threshold.metric, threshold.warningValue)}
+            </div>
+            <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">Raises a Warning alert</div>
+          </div>
+
+          <div className="p-3.5 rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50/50 dark:bg-red-950/20">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-red-700 dark:text-red-400">Critical Trigger</div>
+            <div className="mt-1 text-xl font-extrabold text-red-600 dark:text-red-400 font-mono">
+              {formatValue(threshold.metric, threshold.criticalValue)}
+            </div>
+            <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">Raises a Critical alert</div>
+          </div>
+        </div>
+
+        <div className="p-3.5 rounded-lg bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 space-y-1">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500">Scope Target</div>
+          <div className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+            {threshold.scope === 'GLOBAL' ? (
+              <span className="text-blue-600 dark:text-blue-400">
+                Global Scope — Applied across all registered servers in the estate.
+              </span>
+            ) : (
+              <span>
+                Server Override — Applied specifically to{' '}
+                <strong className="text-gray-900 dark:text-white">
+                  {threshold.server?.name ?? 'Server'} ({threshold.server?.ipOrHostname ?? 'N/A'})
+                </strong>
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+};
+
+// ---------------------------------------------------------------------------
 export const ThresholdsPage: React.FC = () => {
-  const { can } = useAuth();
+  const { can, user } = useAuth();
   const toast = useToast();
-  const canWrite = can('thresholds:write');
+  const canWrite = user?.role === 'ADMIN' && can('thresholds:write');
 
   const { data, loading, error, reload } = useApi(() => thresholdsApi.list(), []);
   const thresholds = data?.thresholds ?? [];
@@ -304,6 +384,7 @@ export const ThresholdsPage: React.FC = () => {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Threshold | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Threshold | null>(null);
+  const [detailTarget, setDetailTarget] = useState<Threshold | null>(null);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -329,7 +410,7 @@ export const ThresholdsPage: React.FC = () => {
   }, [filtered, currentPage]);
 
   const confirmDelete = async () => {
-    if (!deleteTarget) return;
+    if (!deleteTarget || !canWrite) return;
     try {
       await thresholdsApi.remove(deleteTarget.id);
       toast.success('Threshold deleted');
@@ -376,35 +457,33 @@ export const ThresholdsPage: React.FC = () => {
         )}
       </div>
 
+      {/* Operator notice if user is not an Admin */}
+      {user?.role === 'OPERATOR' && (
+        <div className="flex items-center gap-2.5 p-3 rounded-lg bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200/80 dark:border-blue-800/60 text-xs text-blue-900 dark:text-blue-300">
+          <Info className="w-4 h-4 shrink-0 text-blue-600 dark:text-blue-400" />
+          <span>
+            <strong>Operator View:</strong> You have view access to all threshold configurations. Only Administrators can create, edit, or delete thresholds.
+          </span>
+        </div>
+      )}
+
       {/* Search & Filter Card */}
       <div className="flex flex-wrap items-center gap-2.5 bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 rounded-lg shadow-sm p-3.5">
         <div className="relative flex-1 min-w-[200px]">
-          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
+            className={`${inputClass} pl-9`}
+            placeholder="Search metric, scope, or server…"
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
               setCurrentPage(1);
             }}
-            placeholder="Search metric, server name, scope, values…"
-            className={`${controlClass} w-full pl-9 pr-7 text-xs`}
           />
-          {search && (
-            <button
-              onClick={() => {
-                setSearch('');
-                setCurrentPage(1);
-              }}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
         </div>
 
-        {/* Metric Filter Dropdown */}
         <select
-          className={`${controlClass} text-xs`}
+          className={controlClass}
           value={metricFilter}
           onChange={(e) => {
             setMetricFilter(e.target.value);
@@ -419,9 +498,8 @@ export const ThresholdsPage: React.FC = () => {
           ))}
         </select>
 
-        {/* Scope Filter Dropdown */}
         <select
-          className={`${controlClass} text-xs`}
+          className={controlClass}
           value={scopeFilter}
           onChange={(e) => {
             setScopeFilter(e.target.value);
@@ -429,24 +507,24 @@ export const ThresholdsPage: React.FC = () => {
           }}
         >
           <option value="">All Scopes</option>
-          <option value="GLOBAL">Global</option>
-          <option value="SERVER">Server-Specific</option>
+          <option value="GLOBAL">Global Only</option>
+          <option value="SERVER">Server Overrides</option>
         </select>
 
         {hasActiveFilters && (
           <button
             onClick={clearFilters}
-            className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline cursor-pointer ml-auto"
+            className="inline-flex items-center gap-1 px-3 py-2 text-xs font-semibold text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 transition-colors cursor-pointer"
           >
             <X className="w-3.5 h-3.5" />
-            Reset filters
+            Clear
           </button>
         )}
       </div>
 
-      {/* Body Table */}
+      {/* Thresholds Table */}
       <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 rounded-lg shadow-sm overflow-hidden">
-        {loading ? (
+        {loading && thresholds.length === 0 ? (
           <LoadingPanel label="Loading thresholds…" />
         ) : error ? (
           <ErrorState error={error} onRetry={reload} />
@@ -463,9 +541,20 @@ export const ThresholdsPage: React.FC = () => {
               hasActiveFilters ? (
                 <button
                   onClick={clearFilters}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors cursor-pointer"
+                  className="px-3 py-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
                 >
-                  Reset filters
+                  Clear filters
+                </button>
+              ) : canWrite ? (
+                <button
+                  onClick={() => {
+                    setEditing(null);
+                    setFormOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition-colors cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Add threshold
                 </button>
               ) : undefined
             }
@@ -479,7 +568,7 @@ export const ThresholdsPage: React.FC = () => {
                   <th className="px-4 py-3 font-semibold">Scope & Target</th>
                   <th className="px-4 py-3 font-semibold">Warning Threshold</th>
                   <th className="px-4 py-3 font-semibold">Critical Threshold</th>
-                  {canWrite && <th className="px-4 py-3 font-semibold text-right">Actions</th>}
+                  <th className="px-4 py-3 font-semibold text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -515,29 +604,40 @@ export const ThresholdsPage: React.FC = () => {
                       <td className="px-4 py-3.5 text-red-600 dark:text-red-400 font-semibold font-mono">
                         {formatValue(t.metric, t.criticalValue)}
                       </td>
-                      {canWrite && (
-                        <td className="px-4 py-3.5">
-                          <div className="flex items-center justify-end gap-1">
+                      <td className="px-4 py-3.5">
+                        <div className="flex items-center justify-end gap-1">
+                          {canWrite ? (
+                            <>
+                              <button
+                                onClick={() => {
+                                  setEditing(t);
+                                  setFormOpen(true);
+                                }}
+                                title="Edit threshold"
+                                className="p-1.5 rounded text-gray-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors cursor-pointer"
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => setDeleteTarget(t)}
+                                title="Delete threshold"
+                                className="p-1.5 rounded text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </>
+                          ) : (
                             <button
-                              onClick={() => {
-                                setEditing(t);
-                                setFormOpen(true);
-                              }}
-                              title="Edit"
-                              className="p-1.5 rounded text-gray-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors cursor-pointer"
+                              onClick={() => setDetailTarget(t)}
+                              title="View threshold details"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 transition-colors cursor-pointer"
                             >
-                              <Pencil className="w-4 h-4" />
+                              <Eye className="w-3.5 h-3.5" />
+                              View
                             </button>
-                            <button
-                              onClick={() => setDeleteTarget(t)}
-                              title="Delete"
-                              className="p-1.5 rounded text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      )}
+                          )}
+                        </div>
+                      </td>
                     </tr>
                   );
                 })}
@@ -562,34 +662,45 @@ export const ThresholdsPage: React.FC = () => {
         )}
       </div>
 
-      <ThresholdFormModal
-        open={formOpen}
-        threshold={editing}
-        onClose={() => {
-          setFormOpen(false);
-          setEditing(null);
-        }}
-        onSaved={() => {
-          setFormOpen(false);
-          setEditing(null);
-          toast.success('Threshold saved');
-          reload();
-        }}
+      {canWrite && (
+        <ThresholdFormModal
+          open={formOpen}
+          threshold={editing}
+          onClose={() => {
+            setFormOpen(false);
+            setEditing(null);
+          }}
+          onSaved={() => {
+            setFormOpen(false);
+            setEditing(null);
+            toast.success('Threshold saved');
+            reload();
+          }}
+        />
+      )}
+
+      {/* Read-only detail modal for operators */}
+      <ThresholdDetailModal
+        open={detailTarget !== null}
+        threshold={detailTarget}
+        onClose={() => setDetailTarget(null)}
       />
 
-      <ConfirmDialog
-        open={deleteTarget !== null}
-        title="Delete threshold"
-        message={
-          deleteTarget
-            ? `Delete the ${titleCase(deleteTarget.metric)} ${deleteTarget.scope === 'GLOBAL' ? 'global' : 'server'} threshold? Alerts will no longer be raised from this rule.`
-            : ''
-        }
-        confirmLabel="Delete"
-        danger
-        onConfirm={confirmDelete}
-        onClose={() => setDeleteTarget(null)}
-      />
+      {canWrite && (
+        <ConfirmDialog
+          open={deleteTarget !== null}
+          title="Delete threshold"
+          message={
+            deleteTarget
+              ? `Delete the ${titleCase(deleteTarget.metric)} ${deleteTarget.scope === 'GLOBAL' ? 'global' : 'server'} threshold? Alerts will no longer be raised from this rule.`
+              : ''
+          }
+          confirmLabel="Delete"
+          danger
+          onConfirm={confirmDelete}
+          onClose={() => setDeleteTarget(null)}
+        />
+      )}
     </div>
   );
 };
