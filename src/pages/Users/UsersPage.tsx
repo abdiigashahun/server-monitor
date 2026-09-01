@@ -477,24 +477,29 @@ export const UsersPage: React.FC = () => {
                         <Badge variant={roleVariant(u.role)}>{u.role}</Badge>
                       </td>
                       <td className="px-4 py-3.5">
-                        <div className="flex flex-wrap gap-1 max-w-[280px]">
-                          {activePerms.length > 0 ? (
-                            activePerms.slice(0, 3).map((p) => (
+                        <div className="flex flex-wrap gap-1.5 max-w-[320px]">
+                          {(() => {
+                            const domainMap = new Map<string, string[]>();
+                            for (const p of activePerms) {
+                              const [d, a = 'r'] = p.split(':');
+                              const arr = domainMap.get(d) ?? [];
+                              arr.push(a.toUpperCase().charAt(0));
+                              domainMap.set(d, arr);
+                            }
+                            const entries = Array.from(domainMap.entries());
+                            if (entries.length === 0) return <span className="text-xs text-gray-400">—</span>;
+
+                            return entries.map(([domain, acts]) => (
                               <span
-                                key={p}
-                                className="px-1.5 py-0.5 rounded text-[10px] bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 font-mono"
+                                key={domain}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700"
+                                title={`${domain}: ${acts.join(', ')}`}
                               >
-                                {p}
+                                <span className="capitalize">{domain}</span>
+                                <span className="text-blue-600 dark:text-blue-400 font-bold">({acts.join('/')})</span>
                               </span>
-                            ))
-                          ) : (
-                            <span className="text-xs text-gray-400">—</span>
-                          )}
-                          {activePerms.length > 3 && (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] bg-gray-100 dark:bg-gray-800 text-gray-500 font-mono">
-                              +{activePerms.length - 3} more
-                            </span>
-                          )}
+                            ));
+                          })()}
                         </div>
                       </td>
                       <td className="px-4 py-3.5 text-xs text-gray-500 whitespace-nowrap">
