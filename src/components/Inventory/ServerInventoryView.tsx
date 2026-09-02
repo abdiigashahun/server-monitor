@@ -29,7 +29,14 @@ import {
   X,
   Activity,
 } from 'lucide-react';
-import type { Server, ServerListFilters, Criticality, ServerOS, VerificationStatus } from '../../types';
+import type {
+  Server,
+  ServerListFilters,
+  Criticality,
+  ServerOS,
+  VerificationStatus,
+  CreateServerGroupAgentToken,
+} from '../../types';
 
 const controlClass =
   'px-3 py-2 rounded-md bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors';
@@ -105,7 +112,12 @@ export const ServerInventoryView: React.FC = () => {
   // Form + modals state
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Server | null>(null);
-  const [tokenModal, setTokenModal] = useState<{ token: string; name: string; ctx: 'create' | 'rotate' } | null>(null);
+  const [tokenModal, setTokenModal] = useState<{
+    token?: string | null;
+    tokens?: CreateServerGroupAgentToken[];
+    name?: string;
+    ctx: 'create' | 'rotate' | 'group-create';
+  } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Server | null>(null);
   const [rotateTarget, setRotateTarget] = useState<Server | null>(null);
 
@@ -127,12 +139,22 @@ export const ServerInventoryView: React.FC = () => {
     }
   };
 
-  const handleSaved = (saved: Server, agentToken?: string | null) => {
+  const handleSaved = (
+    saved: Server,
+    agentToken?: string | null,
+    groupTokens?: CreateServerGroupAgentToken[],
+  ) => {
     setFormOpen(false);
-    toast.success(editing ? 'Server updated' : 'Server created', saved.name);
+    const isGroup = Boolean(groupTokens && groupTokens.length > 0);
+    toast.success(
+      editing ? 'Server updated' : isGroup ? 'Server group created' : 'Server created',
+      saved.name,
+    );
     setEditing(null);
     reload();
-    if (agentToken) {
+    if (groupTokens && groupTokens.length > 0) {
+      setTokenModal({ tokens: groupTokens, name: saved.name, ctx: 'group-create' });
+    } else if (agentToken) {
       setTokenModal({ token: agentToken, name: saved.name, ctx: 'create' });
     }
   };
@@ -518,6 +540,7 @@ export const ServerInventoryView: React.FC = () => {
       <AgentTokenModal
         open={tokenModal !== null}
         token={tokenModal?.token ?? null}
+        tokens={tokenModal?.tokens}
         serverName={tokenModal?.name}
         context={tokenModal?.ctx ?? 'create'}
         onClose={() => setTokenModal(null)}

@@ -23,7 +23,6 @@ import {
   X,
   Activity,
   Layers,
-  FileCode,
   ArrowRight,
   LogIn,
   LogOut,
@@ -655,33 +654,6 @@ export const AuditLogsPage: React.FC = () => {
                   </div>
                 </div>
               </div>
-            </div>
-
-            {/* Request & Metadata Context */}
-            <div className="p-3.5 rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-[#111827] space-y-2.5">
-              <div className="flex items-center justify-between">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500 flex items-center gap-1.5">
-                  <FileCode className="w-3.5 h-3.5 text-blue-600" />
-                  Payload & Metadata Context
-                </div>
-                {selected.metadata && Object.keys(selected.metadata).length > 0 && (
-                  <button
-                    onClick={() => copyText(JSON.stringify(selected.metadata, null, 2), 'meta-json')}
-                    className="inline-flex items-center gap-1 text-[11px] text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
-                  >
-                    {copiedId === 'meta-json' ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}
-                    Copy JSON
-                  </button>
-                )}
-              </div>
-
-              {selected.metadata && Object.keys(selected.metadata).length > 0 ? (
-                <pre className="text-xs font-mono bg-gray-50 dark:bg-gray-900/90 border border-gray-200 dark:border-gray-800 rounded-md p-3 max-h-60 overflow-y-auto text-gray-800 dark:text-gray-200">
-                  {JSON.stringify(selected.metadata, null, 2)}
-                </pre>
-              ) : (
-                <p className="text-xs text-gray-500 dark:text-gray-400">No additional metadata payload.</p>
-              )}
             </div>
           </div>
         )}
