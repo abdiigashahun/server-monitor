@@ -93,6 +93,36 @@ export interface CreateServerInput {
   expectsAgent?: boolean;
 }
 
+export interface CreateServerGroupMemberInput {
+  name: string;
+  ipOrHostname: string;
+  type: string;
+  os: ServerOS;
+  location: string;
+  department: string;
+  criticality: Criticality;
+  owner: string;
+  expectsAgent?: boolean;
+}
+
+export interface CreateServerGroupInput {
+  parent: CreateServerGroupMemberInput;
+  children: CreateServerGroupMemberInput[];
+}
+
+export interface CreateServerGroupAgentToken {
+  serverId: string;
+  name: string;
+  ipOrHostname: string;
+  role: 'parent' | 'child';
+  agentToken: string | null;
+}
+
+export interface CreateServerGroupResponse {
+  server: Server;
+  agentTokens: CreateServerGroupAgentToken[];
+}
+
 export type UpdateServerInput = Partial<CreateServerInput>;
 
 export interface ServerListFilters {
@@ -351,7 +381,7 @@ export interface AuditListFilters {
 // ---------------------------------------------------------------------------
 export type ReportRange = 'daily' | 'weekly' | 'monthly';
 export type ReportFormat = 'pdf' | 'excel';
-export type ReportKind = 'health' | 'backups';
+export type ReportKind = 'health' | 'backups' | 'audit';
 
 // ---------------------------------------------------------------------------
 // Shared

@@ -1,18 +1,20 @@
 import React, { useState } from 'react';
 import { useApi } from '../../hooks/useApi';
+import { useAuth } from '../../context/AuthContext';
 import * as reportsApi from '../../api/reports';
 import * as serversApi from '../../api/servers';
 import { useToast } from '../../context/ToastContext';
 import { ApiError } from '../../api/client';
 import { Spinner } from '../../components/Common/Spinner';
-import { FileText, Download, HeartPulse, DatabaseBackup, CheckCircle2 } from 'lucide-react';
+import { FileText, Download, HeartPulse, DatabaseBackup, ScrollText, CheckCircle2 } from 'lucide-react';
 import type { ReportKind, ReportRange, ReportFormat } from '../../types';
 
 const RANGES: ReportRange[] = ['daily', 'weekly', 'monthly'];
 
-const KINDS: { key: ReportKind; label: string; icon: React.ElementType; description: string }[] = [
+const ALL_KINDS: { key: ReportKind; label: string; icon: React.ElementType; description: string; adminOnly?: boolean }[] = [
   { key: 'health', label: 'Server Health', icon: HeartPulse, description: 'CPU, memory, disk and availability samples.' },
   { key: 'backups', label: 'Backups', icon: DatabaseBackup, description: 'Backup runs, sizes and staleness.' },
+  { key: 'audit', label: 'Audit Logs', icon: ScrollText, description: 'User sessions, authentication events, and administrative mutations.', adminOnly: true },
 ];
 
 const controlClass =
@@ -22,6 +24,10 @@ const labelClass =
 
 export const ReportsPage: React.FC = () => {
   const toast = useToast();
+  const { user, can } = useAuth();
+  const isAdmin = user?.role === 'ADMIN' || can('audit:read');
+
+  const kinds = ALL_KINDS.filter((k) => !k.adminOnly || isAdmin);
 
   const [kind, setKind] = useState<ReportKind>('health');
   const [range, setRange] = useState<ReportRange>('weekly');
@@ -53,20 +59,20 @@ export const ReportsPage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-5 max-w-3xl">
+    <div className="space-y-5 max-w-4xl">
       <div>
         <h2 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
           <FileText className="w-5 h-5 text-blue-600" />
           Reports
         </h2>
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-          Generate and download health and backup reports as PDF or Excel.
+          Generate and download health, backup{isAdmin ? ', and audit' : ''} reports as PDF or Excel.
         </p>
       </div>
 
       {/* Report kind */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {KINDS.map(({ key, label, icon: Icon, description }) => {
+      <div className={`grid grid-cols-1 sm:grid-cols-2 ${isAdmin ? 'lg:grid-cols-3' : ''} gap-3`}>
+        {kinds.map(({ key, label, icon: Icon, description, adminOnly }) => {
           const active = kind === key;
           return (
             <button
@@ -78,9 +84,16 @@ export const ReportsPage: React.FC = () => {
                   : 'border-gray-200 dark:border-gray-800 bg-white dark:bg-[#111827] hover:border-gray-300 dark:hover:border-gray-700'
               }`}
             >
-              <div className="flex items-center gap-2 font-semibold text-gray-900 dark:text-gray-100">
-                <Icon className={`w-4 h-4 ${active ? 'text-blue-600' : 'text-gray-400'}`} />
-                {label}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 font-semibold text-gray-900 dark:text-gray-100">
+                  <Icon className={`w-4 h-4 ${active ? 'text-blue-600' : 'text-gray-400'}`} />
+                  {label}
+                </div>
+                {adminOnly && (
+                  <span className="px-1.5 py-0.5 text-[10px] font-bold rounded bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                    Admin
+                  </span>
+                )}
               </div>
               <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{description}</p>
             </button>
@@ -105,7 +118,7 @@ export const ReportsPage: React.FC = () => {
             <label className={labelClass}>Format</label>
             <select className={controlClass} value={format} onChange={(e) => setFormat(e.target.value as ReportFormat)}>
               <option value="pdf">PDF</option>
-              <option value="excel">Excel (.xlsx)</option>
+              <option value="excel">Excel (.xlsx / .csv)</option>
             </select>
           </div>
         </div>
@@ -122,7 +135,9 @@ export const ReportsPage: React.FC = () => {
               ))}
             </select>
             <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
-              Leave as “All servers” for an estate-wide report, or scope it to one server.
+              {kind === 'audit'
+                ? 'Leave as “All servers” for estate-wide audit events, or filter by a specific server.'
+                : 'Leave as “All servers” for an estate-wide report, or scope it to one server.'}
             </p>
           </div>
         )}
@@ -149,7 +164,7 @@ export const ReportsPage: React.FC = () => {
         </div>
         {downloading && (
           <p className="text-[11px] text-gray-500 dark:text-gray-400">
-            Large reports may take a moment to compile on the server.
+            Large reports may take a moment to compile.
           </p>
         )}
       </div>

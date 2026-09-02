@@ -3,6 +3,8 @@ import type {
   Server,
   ServerListFilters,
   CreateServerInput,
+  CreateServerGroupInput,
+  CreateServerGroupResponse,
   UpdateServerInput,
   ServerHealth,
   ServerBackups,
@@ -19,6 +21,13 @@ export function get(id: string): Promise<{ server: Server }> {
 
 export function create(input: CreateServerInput): Promise<{ server: Server; agentToken: string | null }> {
   return apiFetch<{ server: Server; agentToken: string | null }>('/servers', {
+    method: 'POST',
+    body: input,
+  });
+}
+
+export function createGroup(input: CreateServerGroupInput): Promise<CreateServerGroupResponse> {
+  return apiFetch<CreateServerGroupResponse>('/servers/group', {
     method: 'POST',
     body: input,
   });
