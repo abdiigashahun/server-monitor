@@ -24,6 +24,10 @@ import {
   criticalityVariant,
 } from '../../utils/formatters';
 import {
+  filterServersForUser,
+  filterAlertsForUser,
+} from '../../api/operatorAssignments';
+import {
   BellRing,
   Check,
   CheckCheck,
@@ -139,7 +143,11 @@ export const AlertsPage: React.FC<AlertsPageProps> = ({ serverId }) => {
 
   // Load servers for dropdown filter
   const { data: serversData } = useApi(() => serversApi.list({}), []);
-  const serverList = serversData?.servers ?? [];
+  const rawServerList = serversData?.servers ?? [];
+  const serverList = useMemo(
+    () => filterServersForUser(rawServerList, currentUser),
+    [rawServerList, currentUser],
+  );
 
   // Load users to resolve user roles (Admin vs Operator)
   const { data: usersData } = useApi(() => usersApi.list({}), []);
@@ -156,7 +164,11 @@ export const AlertsPage: React.FC<AlertsPageProps> = ({ serverId }) => {
     () => alertsApi.list(filters),
     [JSON.stringify(filters)],
   );
-  const alerts = data?.alerts ?? [];
+  const rawAlerts = data?.alerts ?? [];
+  const alerts = useMemo(
+    () => filterAlertsForUser(rawAlerts, serverList, currentUser),
+    [rawAlerts, serverList, currentUser],
+  );
   const pagination = data?.pagination;
 
   // Load audit trail from backend to find who resolved & acknowledged alerts

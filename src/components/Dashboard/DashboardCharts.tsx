@@ -281,31 +281,74 @@ const MOCK_ESTATE_TREND_POINTS = [
 ];
 
 export const EstateHealthTrend: React.FC<{
+  servers?: Server[];
   serverIds: string[];
   note?: string;
   refreshSignal?: number;
-}> = ({ serverIds, note, refreshSignal = 0 }) => {
+}> = ({ servers = [], serverIds, note, refreshSignal = 0 }) => {
   const { theme } = useTheme();
   const [viewStyle, setViewStyle] = useState<'cards' | 'combined'>('cards');
+  const [selectedServerId, setSelectedServerId] = useState<string>('');
+
   const grid = theme === 'dark' ? '#1F2937' : '#E5E7EB';
   const axis = theme === 'dark' ? '#9CA3AF' : '#6B7280';
   const tooltipBg = theme === 'dark' ? '#111827' : '#FFFFFF';
 
-  const idsKey = serverIds.join(',');
+  // Only non-group servers that expect an agent report metrics
+  const reportingServers = useMemo(() => {
+    if (servers.length > 0) {
+      return servers.filter((s) => !s.isGroup);
+    }
+    return [];
+  }, [servers]);
+
+  // Combine serverIds with selectedServerId if it's not already in the list
+  const effectiveIds = useMemo(() => {
+    if (selectedServerId && !serverIds.includes(selectedServerId)) {
+      return [...serverIds, selectedServerId];
+    }
+    return serverIds;
+  }, [serverIds, selectedServerId]);
+
+  const idsKey = effectiveIds.join(',');
   const { data, loading, error, reload } = useApi(
     () =>
-      serverIds.length === 0
+      effectiveIds.length === 0
         ? Promise.resolve([] as (ServerHealth | null)[])
-        : Promise.all(serverIds.map((id) => serversApi.health(id, '7d').catch(() => null))),
+        : Promise.all(effectiveIds.map((id) => serversApi.health(id, '7d').catch(() => null))),
     [idsKey, refreshSignal],
     { refreshMs: ESTATE_REFRESH_MS },
   );
 
-  const realPoints = useMemo(() => aggregateTrend(data ?? []), [data]);
+  // Selected server entity and health object
+  const selectedServer = useMemo(() => {
+    if (!selectedServerId) return null;
+    return servers.find((s) => s.id === selectedServerId) || null;
+  }, [selectedServerId, servers]);
 
-  // Use real points if rich enough, otherwise use mock dataset for crisp demonstration
+  const selectedHealth = useMemo(() => {
+    if (!selectedServerId || !data) return null;
+    return (
+      data.find(
+        (h) => h?.server?.id === selectedServerId || (h as any)?.serverId === selectedServerId,
+      ) ?? null
+    );
+  }, [selectedServerId, data]);
+
+  // Scoped health array for trend aggregation
+  const targetHealthList = useMemo(() => {
+    if (!data) return [];
+    if (selectedServerId) {
+      return selectedHealth ? [selectedHealth] : [];
+    }
+    return data;
+  }, [data, selectedServerId, selectedHealth]);
+
+  const realPoints = useMemo(() => aggregateTrend(targetHealthList), [targetHealthList]);
+
+  // Use real points if available; if a specific server has only latest snapshot, provide a point; otherwise mock fallback for empty estate
   const points = useMemo(() => {
-    if (realPoints.length >= 4) {
+    if (realPoints.length > 0) {
       return realPoints.map((p) => ({
         t: p.t,
         cpu: p.cpu !== null ? Math.round(p.cpu * 10) / 10 : 0,
@@ -313,69 +356,168 @@ export const EstateHealthTrend: React.FC<{
         disk: p.disk !== null ? Math.round(p.disk * 10) / 10 : 0,
       }));
     }
+    if (selectedServerId && selectedHealth?.latest) {
+      const lat = selectedHealth.latest;
+      const timeLabel = lat.recordedAt ? formatAxisTime(lat.recordedAt) : 'Current';
+      return [
+        {
+          t: timeLabel,
+          cpu: lat.cpuUsage !== null ? Math.round(lat.cpuUsage * 10) / 10 : 0,
+          mem: lat.memoryUsage !== null ? Math.round(lat.memoryUsage * 10) / 10 : 0,
+          disk: lat.diskUsage !== null ? Math.round(lat.diskUsage * 10) / 10 : 0,
+        },
+      ];
+    }
     return MOCK_ESTATE_TREND_POINTS;
-  }, [realPoints]);
+  }, [realPoints, selectedServerId, selectedHealth]);
 
+  // Live state metrics (when a specific server is selected)
+  const latestCpu = selectedHealth?.latest?.cpuUsage ?? null;
+  const latestMem = selectedHealth?.latest?.memoryUsage ?? null;
+  const latestDisk = selectedHealth?.latest?.diskUsage ?? null;
+
+  // Averages across the scoped points
   const avgCpu = useMemo(() => {
     const valid = points.filter((p) => p.cpu !== null && p.cpu > 0);
-    if (valid.length === 0) return 41;
+    if (valid.length === 0) return latestCpu ?? 41;
     return valid.reduce((sum, p) => sum + (p.cpu ?? 0), 0) / valid.length;
-  }, [points]);
+  }, [points, latestCpu]);
 
   const avgMem = useMemo(() => {
     const valid = points.filter((p) => p.mem !== null && p.mem > 0);
-    if (valid.length === 0) return 51;
+    if (valid.length === 0) return latestMem ?? 51;
     return valid.reduce((sum, p) => sum + (p.mem ?? 0), 0) / valid.length;
-  }, [points]);
+  }, [points, latestMem]);
 
   const avgDisk = useMemo(() => {
     const valid = points.filter((p) => p.disk !== null && p.disk > 0);
-    if (valid.length === 0) return 79;
+    if (valid.length === 0) return latestDisk ?? 79;
     return valid.reduce((sum, p) => sum + (p.disk ?? 0), 0) / valid.length;
-  }, [points]);
+  }, [points, latestDisk]);
 
   return (
     <section className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 rounded-lg shadow-sm overflow-hidden">
-      <div className="px-5 py-3.5 border-b border-gray-200 dark:border-gray-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gray-50/50 dark:bg-gray-800/20">
+      {/* Header with Server Dropdown & View Mode Switcher */}
+      <div className="px-5 py-3.5 border-b border-gray-200 dark:border-gray-800 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-gray-50/50 dark:bg-gray-800/20">
         <div>
           <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
             <Cpu className="w-4 h-4 text-blue-600" />
-            Estate Health Trend
+            {selectedServer ? `${selectedServer.name} Health Trend` : 'Estate Health Trend'}
             <span className="text-[11px] font-normal text-gray-500 dark:text-gray-400">· 7 days</span>
           </h3>
-          {note && <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">{note}</p>}
+          {selectedServer ? (
+            <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+              Host: <span className="font-mono">{selectedServer.ipOrHostname}</span> · {selectedServer.department} ({selectedServer.location})
+            </p>
+          ) : (
+            note && <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">{note}</p>
+          )}
         </div>
 
-        {/* View Switcher: 3 Cards vs Combined Chart */}
-        <div className="inline-flex rounded-md border border-gray-200 dark:border-gray-700 overflow-hidden text-xs font-semibold">
-          <button
-            type="button"
-            onClick={() => setViewStyle('cards')}
-            className={`px-3 py-1.5 transition-colors cursor-pointer ${
-              viewStyle === 'cards'
-                ? 'bg-blue-600 text-white font-bold shadow-sm'
-                : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-            }`}
-          >
-            3 Trend Cards
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewStyle('combined')}
-            className={`px-3 py-1.5 transition-colors cursor-pointer ${
-              viewStyle === 'combined'
-                ? 'bg-blue-600 text-white font-bold shadow-sm'
-                : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-            }`}
-          >
-            Combined Graph
-          </button>
+        <div className="flex items-center gap-2.5 flex-wrap">
+          {/* Server Selector Dropdown */}
+          <div className="flex items-center gap-1.5">
+            <ServerIcon className="w-3.5 h-3.5 text-gray-400" />
+            <select
+              value={selectedServerId}
+              onChange={(e) => setSelectedServerId(e.target.value)}
+              className="px-2.5 py-1.5 text-xs font-semibold rounded-md bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer shadow-xs max-w-[220px] sm:max-w-xs truncate"
+            >
+              <option value="">
+                All Servers (Estate Average{reportingServers.length > 0 ? ` · ${reportingServers.length}` : ''})
+              </option>
+              {reportingServers.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name} ({s.ipOrHostname})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* View Switcher: 3 Cards vs Combined Chart */}
+          <div className="inline-flex rounded-md border border-gray-200 dark:border-gray-700 overflow-hidden text-xs font-semibold">
+            <button
+              type="button"
+              onClick={() => setViewStyle('cards')}
+              className={`px-3 py-1.5 transition-colors cursor-pointer ${
+                viewStyle === 'cards'
+                  ? 'bg-blue-600 text-white font-bold shadow-sm'
+                  : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+              }`}
+            >
+              3 Trend Cards
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewStyle('combined')}
+              className={`px-3 py-1.5 transition-colors cursor-pointer ${
+                viewStyle === 'combined'
+                  ? 'bg-blue-600 text-white font-bold shadow-sm'
+                  : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+              }`}
+            >
+              Combined Graph
+            </button>
+          </div>
         </div>
       </div>
 
       <div className="p-5">
+        {/* Selected Server Context Banner (when individual server is selected) */}
+        {selectedServer && (
+          <div className="mb-4 p-3 rounded-lg border border-blue-200 dark:border-blue-900/60 bg-blue-50/40 dark:bg-blue-950/20 flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <div className="flex items-center gap-1.5 font-bold text-gray-900 dark:text-gray-100">
+                <ServerIcon className="w-4 h-4 text-blue-600" />
+                <span>{selectedServer.name}</span>
+              </div>
+              <span className="font-mono text-gray-600 dark:text-gray-300">({selectedServer.ipOrHostname})</span>
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                {selectedServer.os}
+              </span>
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                {selectedServer.type}
+              </span>
+              {selectedHealth?.latest && (
+                <span
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                    selectedHealth.latest.networkStatus === 'UP'
+                      ? 'bg-green-100 text-green-700 dark:bg-green-950/60 dark:text-green-300'
+                      : 'bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-300'
+                  }`}
+                >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      selectedHealth.latest.networkStatus === 'UP' ? 'bg-green-500' : 'bg-red-500'
+                    }`}
+                  />
+                  {selectedHealth.latest.networkStatus}
+                </span>
+              )}
+              {selectedHealth?.latest?.uptimeSeconds ? (
+                <span className="text-gray-500 dark:text-gray-400 font-mono">
+                  Uptime: {formatDuration(selectedHealth.latest.uptimeSeconds)}
+                </span>
+              ) : null}
+              {selectedHealth?.latest?.recordedAt && (
+                <span className="text-[11px] text-gray-400">
+                  (Reported {formatTimestamp(selectedHealth.latest.recordedAt)})
+                </span>
+              )}
+            </div>
+
+            <button
+              onClick={() => navigate('servers', selectedServer.id)}
+              className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+            >
+              <span>View Server Details</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
         {loading ? (
-          <LoadingPanel label="Averaging estate telemetry…" />
+          <LoadingPanel label={selectedServer ? `Loading metrics for ${selectedServer.name}…` : 'Averaging estate telemetry…'} />
         ) : error ? (
           <ErrorState error={error} onRetry={reload} />
         ) : viewStyle === 'cards' ? (
@@ -386,21 +528,44 @@ export const EstateHealthTrend: React.FC<{
               <div>
                 <div className="flex items-start justify-between gap-3 mb-2">
                   <div>
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-gray-800 dark:text-gray-100">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-gray-800 dark:text-gray-100 flex items-center gap-1.5">
+                      <Cpu className="w-3.5 h-3.5 text-blue-600" />
                       CPU LOAD TREND
                     </h4>
                     <p className="text-[10px] text-gray-400 dark:text-gray-500 font-medium mt-0.5">
                       Y: Usage (%) · X: Time
                     </p>
                   </div>
-                  <div className="text-right shrink-0">
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500">
-                      Avg
+
+                  {selectedServerId ? (
+                    <div className="flex items-center gap-2.5 text-right shrink-0">
+                      <div>
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+                          Live
+                        </div>
+                        <div className="text-base font-extrabold text-blue-600 dark:text-blue-400 tabular-nums">
+                          {latestCpu !== null ? `${Math.round(latestCpu)}%` : '—'}
+                        </div>
+                      </div>
+                      <div className="border-l border-gray-200 dark:border-gray-800 pl-2.5">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+                          7d Avg
+                        </div>
+                        <div className="text-xs font-bold text-gray-600 dark:text-gray-300 tabular-nums">
+                          {Math.round(avgCpu)}%
+                        </div>
+                      </div>
                     </div>
-                    <div className="text-base font-extrabold text-blue-600 dark:text-blue-400 tabular-nums">
-                      {Math.round(avgCpu)}%
+                  ) : (
+                    <div className="text-right shrink-0">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+                        Estate Avg
+                      </div>
+                      <div className="text-base font-extrabold text-blue-600 dark:text-blue-400 tabular-nums">
+                        {Math.round(avgCpu)}%
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
 
                 <div className="h-48 w-full -ml-2">
@@ -452,7 +617,7 @@ export const EstateHealthTrend: React.FC<{
                           fontSize: 12,
                           color: theme === 'dark' ? '#F8FAFC' : '#111827',
                         }}
-                        formatter={(val: any) => [`${val}%`, 'CPU Load']}
+                        formatter={(val: any) => [`${val}%`, selectedServer ? `${selectedServer.name} CPU` : 'CPU Load']}
                         labelStyle={{ color: theme === 'dark' ? '#94A3B8' : '#6B7280', fontWeight: 600 }}
                       />
                       <Area type="monotone" dataKey="cpu" stroke="#3B82F6" strokeWidth={2.5} fillOpacity={1} fill="url(#estate-cpu-gradient)" connectNulls isAnimationActive={true} />
@@ -467,21 +632,44 @@ export const EstateHealthTrend: React.FC<{
               <div>
                 <div className="flex items-start justify-between gap-3 mb-2">
                   <div>
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-gray-800 dark:text-gray-100">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-gray-800 dark:text-gray-100 flex items-center gap-1.5">
+                      <MemoryStick className="w-3.5 h-3.5 text-cyan-600" />
                       MEMORY ALLOCATION
                     </h4>
                     <p className="text-[10px] text-gray-400 dark:text-gray-500 font-medium mt-0.5">
                       Y: Allocation (%) · X: Time
                     </p>
                   </div>
-                  <div className="text-right shrink-0">
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500">
-                      Avg
+
+                  {selectedServerId ? (
+                    <div className="flex items-center gap-2.5 text-right shrink-0">
+                      <div>
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+                          Live
+                        </div>
+                        <div className="text-base font-extrabold text-cyan-600 dark:text-cyan-400 tabular-nums">
+                          {latestMem !== null ? `${Math.round(latestMem)}%` : '—'}
+                        </div>
+                      </div>
+                      <div className="border-l border-gray-200 dark:border-gray-800 pl-2.5">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+                          7d Avg
+                        </div>
+                        <div className="text-xs font-bold text-gray-600 dark:text-gray-300 tabular-nums">
+                          {Math.round(avgMem)}%
+                        </div>
+                      </div>
                     </div>
-                    <div className="text-base font-extrabold text-cyan-600 dark:text-cyan-400 tabular-nums">
-                      {Math.round(avgMem)}%
+                  ) : (
+                    <div className="text-right shrink-0">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+                        Estate Avg
+                      </div>
+                      <div className="text-base font-extrabold text-cyan-600 dark:text-cyan-400 tabular-nums">
+                        {Math.round(avgMem)}%
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
 
                 <div className="h-48 w-full -ml-2">
@@ -533,7 +721,7 @@ export const EstateHealthTrend: React.FC<{
                           fontSize: 12,
                           color: theme === 'dark' ? '#F8FAFC' : '#111827',
                         }}
-                        formatter={(val: any) => [`${val}%`, 'Memory Allocation']}
+                        formatter={(val: any) => [`${val}%`, selectedServer ? `${selectedServer.name} Memory` : 'Memory Allocation']}
                         labelStyle={{ color: theme === 'dark' ? '#94A3B8' : '#6B7280', fontWeight: 600 }}
                       />
                       <Area type="monotone" dataKey="mem" stroke="#06B6D4" strokeWidth={2.5} fillOpacity={1} fill="url(#estate-mem-gradient)" connectNulls isAnimationActive={true} />
@@ -548,21 +736,44 @@ export const EstateHealthTrend: React.FC<{
               <div>
                 <div className="flex items-start justify-between gap-3 mb-2">
                   <div>
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-gray-800 dark:text-gray-100">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-gray-800 dark:text-gray-100 flex items-center gap-1.5">
+                      <HardDrive className="w-3.5 h-3.5 text-purple-600" />
                       DISK SPACE USAGE
                     </h4>
                     <p className="text-[10px] text-gray-400 dark:text-gray-500 font-medium mt-0.5">
                       Y: Space Used (%) · X: Time
                     </p>
                   </div>
-                  <div className="text-right shrink-0">
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500">
-                      Avg
+
+                  {selectedServerId ? (
+                    <div className="flex items-center gap-2.5 text-right shrink-0">
+                      <div>
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+                          Live
+                        </div>
+                        <div className="text-base font-extrabold text-purple-600 dark:text-purple-400 tabular-nums">
+                          {latestDisk !== null ? `${Math.round(latestDisk)}%` : '—'}
+                        </div>
+                      </div>
+                      <div className="border-l border-gray-200 dark:border-gray-800 pl-2.5">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+                          7d Avg
+                        </div>
+                        <div className="text-xs font-bold text-gray-600 dark:text-gray-300 tabular-nums">
+                          {Math.round(avgDisk)}%
+                        </div>
+                      </div>
                     </div>
-                    <div className="text-base font-extrabold text-purple-600 dark:text-purple-400 tabular-nums">
-                      {Math.round(avgDisk)}%
+                  ) : (
+                    <div className="text-right shrink-0">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+                        Estate Avg
+                      </div>
+                      <div className="text-base font-extrabold text-purple-600 dark:text-purple-400 tabular-nums">
+                        {Math.round(avgDisk)}%
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
 
                 <div className="h-48 w-full -ml-2">
@@ -614,7 +825,7 @@ export const EstateHealthTrend: React.FC<{
                           fontSize: 12,
                           color: theme === 'dark' ? '#F8FAFC' : '#111827',
                         }}
-                        formatter={(val: any) => [`${val}%`, 'Disk Usage']}
+                        formatter={(val: any) => [`${val}%`, selectedServer ? `${selectedServer.name} Disk` : 'Disk Usage']}
                         labelStyle={{ color: theme === 'dark' ? '#94A3B8' : '#6B7280', fontWeight: 600 }}
                       />
                       <Area type="monotone" dataKey="disk" stroke="#8B5CF6" strokeWidth={2.5} fillOpacity={1} fill="url(#estate-disk-gradient)" connectNulls isAnimationActive={true} />
@@ -652,9 +863,9 @@ export const EstateHealthTrend: React.FC<{
                   }}
                 />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Line type="monotone" dataKey="cpu" name="Avg CPU" stroke="#2563EB" dot={false} strokeWidth={2} connectNulls />
-                <Line type="monotone" dataKey="mem" name="Avg Memory" stroke="#06B6D4" dot={false} strokeWidth={2} connectNulls />
-                <Line type="monotone" dataKey="disk" name="Avg Disk" stroke="#8B5CF6" dot={false} strokeWidth={2} connectNulls />
+                <Line type="monotone" dataKey="cpu" name={selectedServer ? `${selectedServer.name} CPU` : 'Avg CPU'} stroke="#2563EB" dot={false} strokeWidth={2} connectNulls />
+                <Line type="monotone" dataKey="mem" name={selectedServer ? `${selectedServer.name} Memory` : 'Avg Memory'} stroke="#06B6D4" dot={false} strokeWidth={2} connectNulls />
+                <Line type="monotone" dataKey="disk" name={selectedServer ? `${selectedServer.name} Disk` : 'Avg Disk'} stroke="#8B5CF6" dot={false} strokeWidth={2} connectNulls />
               </LineChart>
             </ResponsiveContainer>
           </div>

@@ -22,6 +22,10 @@ import {
   titleCase,
 } from '../../utils/formatters';
 import {
+  filterServersForUser,
+  filterAlertsForUser,
+} from '../../api/operatorAssignments';
+import {
   DonutCard,
   EstateHealthTrend,
   EstateBackupSummary,
@@ -130,13 +134,26 @@ export const DashboardOverview: React.FC = () => {
     { refreshMs: CORE_REFRESH_MS },
   );
 
-  const servers = serversQuery.data?.servers ?? [];
+  const rawServers = serversQuery.data?.servers ?? [];
+  const servers = useMemo(() => filterServersForUser(rawServers, user), [rawServers, user]);
   const stats = useMemo(() => summarize(servers), [servers]);
 
-  const openAlertsAll = openAlertsQuery.data?.alerts ?? [];
+  const rawOpenAlerts = openAlertsQuery.data?.alerts ?? [];
+  const openAlertsAll = useMemo(
+    () => filterAlertsForUser(rawOpenAlerts, servers, user),
+    [rawOpenAlerts, servers, user],
+  );
   const recentOpen = openAlertsAll.slice(0, 5);
-  const openTotal = openAlertsQuery.data?.pagination.total ?? 0;
-  const criticalTotal = criticalQuery.data?.pagination.total ?? 0;
+
+  const rawCriticalAlerts = criticalQuery.data?.alerts ?? [];
+  const criticalAlerts = useMemo(
+    () => filterAlertsForUser(rawCriticalAlerts, servers, user),
+    [rawCriticalAlerts, servers, user],
+  );
+
+  const isOperator = user?.role === 'OPERATOR';
+  const openTotal = isOperator ? openAlertsAll.length : (openAlertsQuery.data?.pagination.total ?? 0);
+  const criticalTotal = isOperator ? criticalAlerts.length : (criticalQuery.data?.pagination.total ?? 0);
 
   // Only non-group servers that run an agent actually report health/backups.
   const reporting = useMemo(() => servers.filter((s) => !s.isGroup && s.expectsAgent), [servers]);
@@ -144,9 +161,11 @@ export const DashboardOverview: React.FC = () => {
   const estateNote =
     reporting.length === 0
       ? undefined
-      : reporting.length > ESTATE_CAP
-        ? `Across the first ${ESTATE_CAP} of ${reporting.length} reporting servers.`
-        : `Across ${reporting.length} reporting server${reporting.length === 1 ? '' : 's'}.`;
+      : isOperator
+        ? `Across your ${reporting.length} assigned reporting server${reporting.length === 1 ? '' : 's'}.`
+        : reporting.length > ESTATE_CAP
+          ? `Across the first ${ESTATE_CAP} of ${reporting.length} reporting servers.`
+          : `Across ${reporting.length} reporting server${reporting.length === 1 ? '' : 's'}.`;
 
   const criticalitySlices: DonutSlice[] = [
     { name: 'High', value: stats.high, color: '#DC2626' },
@@ -195,11 +214,25 @@ export const DashboardOverview: React.FC = () => {
             Welcome back to {user ? ` ${user.name.split(' ')[0]}` : ''}
           </h2>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            Live status of the monitored estate.
+            {isOperator
+              ? `Operator Scope: Viewing telemetry for your ${servers.length} assigned server${servers.length === 1 ? '' : 's'}.`
+              : 'Live status of the monitored estate.'}
           </p>
         </div>
         <LiveIndicator lastUpdated={lastUpdated} refreshing={refreshing} onRefresh={refreshAll} />
       </div>
+
+      {/* Operator notice if 0 servers are assigned */}
+      {isOperator && serversReady && servers.length === 0 && (
+        <div className="p-4 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 flex items-center justify-between gap-3 text-sm text-amber-900 dark:text-amber-200">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+            <span>
+              <strong>No Assigned Servers:</strong> You currently have 0 servers assigned to your operator account. Contact a system administrator to assign servers to you.
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Server + alert stat cards */}
       {canServers && serversQuery.loading ? (
@@ -276,8 +309,15 @@ export const DashboardOverview: React.FC = () => {
         </div>
       )}
 
-      {/* Estate health trend (averaged across reporting servers) */}
-      {serversReady && <EstateHealthTrend serverIds={reportingIds} note={estateNote} refreshSignal={refreshSignal} />}
+      {/* Estate health trend (averaged across reporting servers or scoped to selected server) */}
+      {serversReady && (
+        <EstateHealthTrend
+          servers={servers}
+          serverIds={reportingIds}
+          note={estateNote}
+          refreshSignal={refreshSignal}
+        />
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {/* Estate backup status */}

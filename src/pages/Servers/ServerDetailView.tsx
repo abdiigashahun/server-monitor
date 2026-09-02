@@ -39,6 +39,7 @@ import { ServerForm } from '../../components/Servers/ServerForm';
 import { AgentTokenModal } from '../../components/Servers/AgentTokenModal';
 import { ConfirmDialog } from '../../components/Common/ConfirmDialog';
 import { VerificationBadge } from '../../components/Servers/VerificationBadge';
+import { isServerAssignedToUser } from '../../api/operatorAssignments';
 import {
   criticalityVariant,
   alertSeverityVariant,
@@ -211,6 +212,27 @@ export const ServerDetailView: React.FC<ServerDetailViewProps> = ({ serverId }) 
   if (serverQuery.loading) return <LoadingPanel label="Loading server…" />;
   if (serverQuery.error || !server)
     return <ErrorState error={serverQuery.error ?? new Error('Server not found')} onRetry={serverQuery.reload} />;
+
+  if (user?.role === 'OPERATOR' && !isServerAssignedToUser(server, user)) {
+    return (
+      <div className="space-y-4">
+        <button
+          onClick={() => navigate('servers')}
+          className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-500 dark:text-gray-400 hover:text-blue-600 transition-colors cursor-pointer"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          Back to inventory
+        </button>
+        <div className="p-8 bg-white dark:bg-[#111827] border border-amber-200 dark:border-amber-800/60 rounded-lg text-center space-y-3 shadow-xs">
+          <AlertTriangle className="w-10 h-10 text-amber-500 mx-auto" />
+          <h3 className="text-base font-bold text-gray-900 dark:text-gray-100">Access Restricted</h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto">
+            This server is not assigned to your operator account. If you need access to this server, please contact an administrator to assign it to you.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const health = healthQuery.data;
   const backups = backupQuery.data;
