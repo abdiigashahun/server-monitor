@@ -16,6 +16,7 @@ import { VerificationBadge } from '../Servers/VerificationBadge';
 import { ServerForm } from '../Servers/ServerForm';
 import { AgentTokenModal } from '../Servers/AgentTokenModal';
 import { criticalityVariant, titleCase } from '../../utils/formatters';
+import { filterServersForUser } from '../../api/operatorAssignments';
 import {
   Plus,
   Search,
@@ -28,6 +29,7 @@ import {
   Filter,
   X,
   Activity,
+  AlertTriangle,
 } from 'lucide-react';
 import type {
   Server,
@@ -48,6 +50,7 @@ export const ServerInventoryView: React.FC = () => {
   const toast = useToast();
   const canWrite = can('servers:write');
   const isAdmin = user?.role === 'ADMIN';
+  const isOperator = user?.role === 'OPERATOR';
 
   const [search, setSearch] = useState('');
   const [locationFilter, setLocationFilter] = useState('');
@@ -57,7 +60,8 @@ export const ServerInventoryView: React.FC = () => {
 
   // Fetch all servers once to extract dynamic distinct locations and departments
   const { data: allServersData } = useApi(() => serversApi.list({}), []);
-  const allServers = allServersData?.servers ?? [];
+  const rawAllServers = allServersData?.servers ?? [];
+  const allServers = useMemo(() => filterServersForUser(rawAllServers, user), [rawAllServers, user]);
 
   const distinctLocations = useMemo(() => {
     const set = new Set<string>();
@@ -95,7 +99,8 @@ export const ServerInventoryView: React.FC = () => {
     () => serversApi.list(filters),
     [JSON.stringify(filters)],
   );
-  const servers = data?.servers ?? [];
+  const rawServers = data?.servers ?? [];
+  const servers = useMemo(() => filterServersForUser(rawServers, user), [rawServers, user]);
 
   // Client-side pagination (10 elements per page)
   const totalServers = servers.length;
@@ -177,6 +182,7 @@ export const ServerInventoryView: React.FC = () => {
     try {
       const { agentToken } = await serversApi.rotateToken(rotateTarget.id);
       setTokenModal({ token: agentToken, name: rotateTarget.name, ctx: 'rotate' });
+      toast.success('Token rotated', rotateTarget.name);
       reload();
     } catch (err) {
       toast.error('Rotation failed', err instanceof ApiError ? err.message : undefined);
@@ -219,7 +225,11 @@ export const ServerInventoryView: React.FC = () => {
             Server Inventory
           </h2>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            {data ? `${servers.length} server${servers.length === 1 ? '' : 's'} registered` : 'Registered infrastructure'}
+            {isOperator
+              ? `${servers.length} assigned server${servers.length === 1 ? '' : 's'}`
+              : data
+                ? `${servers.length} server${servers.length === 1 ? '' : 's'} registered`
+                : 'Registered infrastructure'}
           </p>
         </div>
         {isAdmin && (
@@ -232,6 +242,18 @@ export const ServerInventoryView: React.FC = () => {
           </button>
         )}
       </div>
+
+      {/* Operator notice if 0 servers are assigned */}
+      {isOperator && !loading && servers.length === 0 && (
+        <div className="p-4 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 flex items-center justify-between gap-3 text-sm text-amber-900 dark:text-amber-200">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+            <span>
+              <strong>No Assigned Servers:</strong> You currently do not have any servers assigned to your operator account. Please contact an administrator to assign servers to you.
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Filters Card */}
       <div className="flex flex-wrap items-center gap-2.5 bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 rounded-lg shadow-sm p-3.5">

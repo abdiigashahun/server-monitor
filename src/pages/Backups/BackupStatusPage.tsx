@@ -18,6 +18,7 @@ import {
   titleCase,
   criticalityVariant,
 } from '../../utils/formatters';
+import { filterServersForUser } from '../../api/operatorAssignments';
 import {
   Database,
   Search,
@@ -124,8 +125,9 @@ function statusBadgeInfo(status: UnifiedBackupStatus): {
 }
 
 export const BackupStatusPage: React.FC = () => {
-  const { can } = useAuth();
+  const { user, can } = useAuth();
   const canReadServers = can('servers:read');
+  const isOperator = user?.role === 'OPERATOR';
 
   const [range, setRange] = useState<Range>('7d');
   const [search, setSearch] = useState('');
@@ -147,7 +149,8 @@ export const BackupStatusPage: React.FC = () => {
     { refreshMs: 60_000 },
   );
 
-  const servers = serversQuery.data?.servers ?? [];
+  const rawServers = serversQuery.data?.servers ?? [];
+  const servers = useMemo(() => filterServersForUser(rawServers, user), [rawServers, user]);
   const serverIdsKey = servers.map((s) => s.id).join(',');
 
   // Dynamic distinct departments & locations
@@ -305,7 +308,9 @@ export const BackupStatusPage: React.FC = () => {
             Backup Status
           </h2>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            Backup telemetry, staleness tracking, and snapshots across {stats.total} monitored servers.
+            {isOperator
+              ? `Backup telemetry and staleness tracking across your ${stats.total} assigned server${stats.total === 1 ? '' : 's'}.`
+              : `Backup telemetry, staleness tracking, and snapshots across ${stats.total} monitored servers.`}
           </p>
         </div>
         <div className="flex items-center gap-2.5">
@@ -319,6 +324,18 @@ export const BackupStatusPage: React.FC = () => {
           <LiveIndicator lastUpdated={lastUpdated} refreshing={isRefreshing} onRefresh={handleRefresh} />
         </div>
       </div>
+
+      {/* Operator notice if 0 servers are assigned */}
+      {isOperator && !isLoading && servers.length === 0 && (
+        <div className="p-4 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 flex items-center justify-between gap-3 text-sm text-amber-900 dark:text-amber-200">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+            <span>
+              <strong>No Assigned Servers:</strong> You currently have 0 servers assigned to your operator account. Please contact an administrator to assign servers to you.
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Compact 5-Metric Filter Bar */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5">

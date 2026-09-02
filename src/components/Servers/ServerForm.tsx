@@ -14,6 +14,8 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
+import * as usersApi from '../../api/users';
+import { setServerOperators, getServerOperators } from '../../api/operatorAssignments';
 import type {
   Server,
   ServerOS,
@@ -22,6 +24,7 @@ import type {
   CreateServerGroupInput,
   CreateServerGroupMemberInput,
   CreateServerGroupAgentToken,
+  User,
 } from '../../types';
 
 interface ServerFormProps {
@@ -187,6 +190,16 @@ export const ServerForm: React.FC<ServerFormProps> = ({
     [parentData, server?.id],
   );
 
+  // Load registered users to assign operators (only users with role OPERATOR)
+  const { data: usersData } = useApi(
+    () => (open ? usersApi.list().catch(() => ({ users: [] })) : Promise.resolve(null)),
+    [open],
+  );
+  const operatorOptions = useMemo(
+    () => (usersData?.users ?? []).filter((u) => u.role === 'OPERATOR'),
+    [usersData],
+  );
+
   const setSingle = <K extends keyof SingleFormState>(key: K, value: SingleFormState[K]) =>
     setSingleForm((f) => ({ ...f, [key]: value }));
 
@@ -299,9 +312,15 @@ export const ServerForm: React.FC<ServerFormProps> = ({
       try {
         if (isEdit && server) {
           const { server: updated } = await serversApi.update(server.id, payload);
+          if (singleForm.owner.trim()) {
+            setServerOperators(updated.id, [singleForm.owner.trim()]);
+          }
           onSaved(updated, null);
         } else {
           const { server: created, agentToken } = await serversApi.create(payload);
+          if (singleForm.owner.trim()) {
+            setServerOperators(created.id, [singleForm.owner.trim()]);
+          }
           onSaved(created, agentToken);
         }
       } catch (err) {
@@ -346,6 +365,18 @@ export const ServerForm: React.FC<ServerFormProps> = ({
 
       try {
         const response = await serversApi.createGroup(groupPayload);
+        if (parentForm.owner.trim()) {
+          setServerOperators(response.server.id, [parentForm.owner.trim()]);
+        }
+        if (response.agentTokens) {
+          for (let i = 0; i < response.agentTokens.length; i++) {
+            const tok = response.agentTokens[i];
+            const childOwner = children[i]?.owner.trim() || parentForm.owner.trim();
+            if (tok.serverId && childOwner) {
+              setServerOperators(tok.serverId, [childOwner]);
+            }
+          }
+        }
         onSaved(response.server, null, response.agentTokens);
       } catch (err) {
         setFormError(err instanceof ApiError ? err.message : 'Failed to create server group.');
@@ -530,23 +561,65 @@ export const ServerForm: React.FC<ServerFormProps> = ({
                 </select>
               </div>
               <div>
-                <label className={labelClass}>Owner</label>
-                <input
-                  className={inputClass}
-                  value={singleForm.owner}
-                  onChange={(e) => setSingle('owner', e.target.value)}
-                  placeholder="Team or person responsible"
-                />
+                <label className={labelClass}>
+                  Assign Operator / Owner <span className="text-red-500">*</span>
+                </label>
+                {operatorOptions.length > 0 ? (
+                  <div className="space-y-1.5">
+                    <select
+                      className={inputClass}
+                      value={
+                        operatorOptions.some(
+                          (op) =>
+                            op.email === singleForm.owner ||
+                            op.name === singleForm.owner ||
+                            op.id === singleForm.owner,
+                        )
+                          ? singleForm.owner
+                          : singleForm.owner
+                          ? '__custom__'
+                          : ''
+                      }
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val !== '__custom__') {
+                          setSingle('owner', val);
+                        }
+                      }}
+                    >
+                      <option value="">— Select Operator (Optional) —</option>
+                      {operatorOptions.map((op) => (
+                        <option key={op.id} value={op.email}>
+                          {op.name} ({op.email})
+                        </option>
+                      ))}
+                      <option value="__custom__">Custom / Other Team</option>
+                    </select>
+                    <input
+                      className={inputClass}
+                      value={singleForm.owner}
+                      onChange={(e) => setSingle('owner', e.target.value)}
+                      placeholder="Operator email or team responsible"
+                    />
+                  </div>
+                ) : (
+                  <input
+                    className={inputClass}
+                    value={singleForm.owner}
+                    onChange={(e) => setSingle('owner', e.target.value)}
+                    placeholder="Operator email or team responsible"
+                  />
+                )}
               </div>
 
               <div>
-                <label className={labelClass}>Parent group (optional)</label>
+                <label className={labelClass}>Parent Group (Optional)</label>
                 <select
                   className={inputClass}
                   value={singleForm.parentServerId}
                   onChange={(e) => setSingle('parentServerId', e.target.value)}
                 >
-                  <option value="">— None (top level) —</option>
+                  <option value="">— None (Standalone Server / No Parent) —</option>
                   {parentOptions.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name} ({p.ipOrHostname})
@@ -554,7 +627,7 @@ export const ServerForm: React.FC<ServerFormProps> = ({
                   ))}
                 </select>
                 <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
-                  Grouping is single-level: only top-level servers can be parents.
+                  Optional: Leave as &quot;None&quot; for a standalone server, or select an existing parent group.
                 </p>
               </div>
 
@@ -671,13 +744,55 @@ export const ServerForm: React.FC<ServerFormProps> = ({
                   </select>
                 </div>
                 <div>
-                  <label className={labelClass}>Owner</label>
-                  <input
-                    className={inputClass}
-                    value={parentForm.owner}
-                    onChange={(e) => setParent('owner', e.target.value)}
-                    placeholder="Ops Team"
-                  />
+                  <label className={labelClass}>
+                    Assign Operator / Owner <span className="text-red-500">*</span>
+                  </label>
+                  {operatorOptions.length > 0 ? (
+                    <div className="space-y-1.5">
+                      <select
+                        className={inputClass}
+                        value={
+                          operatorOptions.some(
+                            (op) =>
+                              op.email === parentForm.owner ||
+                              op.name === parentForm.owner ||
+                              op.id === parentForm.owner,
+                          )
+                            ? parentForm.owner
+                            : parentForm.owner
+                            ? '__custom__'
+                            : ''
+                        }
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val !== '__custom__') {
+                            setParent('owner', val);
+                          }
+                        }}
+                      >
+                        <option value="">— Select Operator (Optional) —</option>
+                        {operatorOptions.map((op) => (
+                          <option key={op.id} value={op.email}>
+                            {op.name} ({op.email})
+                          </option>
+                        ))}
+                        <option value="__custom__">Custom / Other Team</option>
+                      </select>
+                      <input
+                        className={inputClass}
+                        value={parentForm.owner}
+                        onChange={(e) => setParent('owner', e.target.value)}
+                        placeholder="Operator email or team responsible"
+                      />
+                    </div>
+                  ) : (
+                    <input
+                      className={inputClass}
+                      value={parentForm.owner}
+                      onChange={(e) => setParent('owner', e.target.value)}
+                      placeholder="Operator email or team responsible"
+                    />
+                  )}
                 </div>
               </div>
 
@@ -851,13 +966,55 @@ export const ServerForm: React.FC<ServerFormProps> = ({
                           </select>
                         </div>
                         <div>
-                          <label className={labelClass}>Owner</label>
-                          <input
-                            className={inputClass}
-                            value={child.owner}
-                            onChange={(e) => setChild(child.id, { owner: e.target.value })}
-                            placeholder="Ops Team"
-                          />
+                          <label className={labelClass}>
+                            Assign Operator / Owner <span className="text-red-500">*</span>
+                          </label>
+                          {operatorOptions.length > 0 ? (
+                            <div className="space-y-1.5">
+                              <select
+                                className={inputClass}
+                                value={
+                                  operatorOptions.some(
+                                    (op) =>
+                                      op.email === child.owner ||
+                                      op.name === child.owner ||
+                                      op.id === child.owner,
+                                  )
+                                    ? child.owner
+                                    : child.owner
+                                    ? '__custom__'
+                                    : ''
+                                }
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  if (val !== '__custom__') {
+                                    setChild(child.id, { owner: val });
+                                  }
+                                }}
+                              >
+                                <option value="">— Select Operator (Optional) —</option>
+                                {operatorOptions.map((op) => (
+                                  <option key={op.id} value={op.email}>
+                                    {op.name} ({op.email})
+                                  </option>
+                                ))}
+                                <option value="__custom__">Custom / Other Team</option>
+                              </select>
+                              <input
+                                className={inputClass}
+                                value={child.owner}
+                                onChange={(e) => setChild(child.id, { owner: e.target.value })}
+                                placeholder="Operator email or team responsible"
+                              />
+                            </div>
+                          ) : (
+                            <input
+                              className={inputClass}
+                              value={child.owner}
+                              onChange={(e) => setChild(child.id, { owner: e.target.value })}
+                              placeholder="Operator email or team responsible"
+                            />
+                          )}
                         </div>
 
                         <div className="sm:col-span-2 pt-1">
