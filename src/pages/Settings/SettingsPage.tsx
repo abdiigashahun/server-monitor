@@ -208,67 +208,7 @@ export const SettingsPage: React.FC = () => {
         )}
       </Card>
 
-      {/* Appearance */}
-      <Card title="Appearance" icon={theme === 'dark' ? Moon : Sun} subtitle="Choose how the console looks. Saved to this browser.">
-        <div className="inline-flex rounded-md border border-gray-200 dark:border-gray-700 overflow-hidden text-sm font-semibold">
-          <button
-            onClick={() => setTheme('light')}
-            className={`inline-flex items-center gap-1.5 px-4 py-2 transition-colors cursor-pointer ${
-              theme === 'light'
-                ? 'bg-blue-600 text-white'
-                : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
-            }`}
-          >
-            <Sun className="w-4 h-4" />
-            Light
-          </button>
-          <button
-            onClick={() => setTheme('dark')}
-            className={`inline-flex items-center gap-1.5 px-4 py-2 transition-colors cursor-pointer ${
-              theme === 'dark'
-                ? 'bg-blue-600 text-white'
-                : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
-            }`}
-          >
-            <Moon className="w-4 h-4" />
-            Dark
-          </button>
-        </div>
-      </Card>
-
-      {/* Agent onboarding reference */}
-      <Card
-        title="Agent onboarding"
-        icon={Terminal}
-        subtitle="How monitored servers report in. These endpoints are called by agents, not this console."
-      >
-        <div className="space-y-3 text-sm text-gray-600 dark:text-gray-300">
-          <p>
-            Health and verification data comes from a monitoring agent installed on each server — the
-            console never pings hosts directly. To onboard a server:
-          </p>
-          <ol className="list-decimal list-inside space-y-1.5 text-sm">
-            <li>
-              Register the server here (<span className="font-medium">Servers → Add server</span>) with
-              “expects a monitoring agent” enabled, and copy the one-time agent token.
-            </li>
-            <li>Install the agent on the host and configure it with that token.</li>
-            <li>
-              The agent authenticates and self-registers, then streams health on its own schedule.
-              Once the first check-in lands, the server flips from{' '}
-              <Badge variant="warning">Pending</Badge> to <Badge variant="success">Verified</Badge>.
-            </li>
-          </ol>
-          <div className="rounded-md bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-3 font-mono text-xs text-gray-700 dark:text-gray-300 space-y-1">
-            <div>POST /api/v1/agent/register &nbsp;<span className="text-gray-400">— agent bootstraps with its token</span></div>
-            <div>POST /api/v1/health &nbsp;<span className="text-gray-400">— agent reports metrics</span></div>
-          </div>
-          <p className="text-[11px] text-gray-500 dark:text-gray-400">
-            Listed for reference only. For security, these agent routes are not callable from the
-            browser — rotate a server's token from its detail page if it is ever compromised.
-          </p>
-        </div>
-      </Card>
+    
     </div>
   );
 };
