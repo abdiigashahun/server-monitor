@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Modal } from '../Common/Modal';
 import { useApi } from '../../hooks/useApi';
 import * as serversApi from '../../api/servers';
-import { isValidIpOrHostname } from '../../utils/validation';
+import { isValidIpOrHostname, isValidEmail } from '../../utils/validation';
 import { ApiError } from '../../api/client';
 import {
   AlertCircle,
@@ -15,7 +15,6 @@ import {
   ChevronUp,
 } from 'lucide-react';
 import * as usersApi from '../../api/users';
-import { setServerOperators, getServerOperators } from '../../api/operatorAssignments';
 import type {
   Server,
   ServerOS,
@@ -26,6 +25,29 @@ import type {
   CreateServerGroupAgentToken,
   User,
 } from '../../types';
+
+/** Resolve operatorEmail / operatorUserId from the owner field or operator picker. */
+function resolveOperatorFields(
+  ownerRaw: string,
+  operators: User[],
+): { operatorEmail?: string | null; operatorUserId?: string | null } {
+  const owner = ownerRaw.trim();
+  if (!owner) return { operatorEmail: null, operatorUserId: null };
+
+  const match = operators.find(
+    (op) =>
+      op.email.toLowerCase() === owner.toLowerCase() ||
+      op.id === owner ||
+      op.name.toLowerCase() === owner.toLowerCase(),
+  );
+  if (match) {
+    return { operatorEmail: match.email, operatorUserId: match.id };
+  }
+  if (isValidEmail(owner)) {
+    return { operatorEmail: owner, operatorUserId: null };
+  }
+  return {};
+}
 
 interface ServerFormProps {
   open: boolean;
@@ -112,7 +134,8 @@ function initialSingleState(server?: Server | null, defaultParentId?: string | n
     location: server?.location ?? '',
     department: server?.department ?? '',
     criticality: server?.criticality ?? 'MEDIUM',
-    owner: server?.owner ?? '',
+    // Prefer the assigned operator email when editing so the picker stays in sync.
+    owner: server?.operatorEmail || server?.owner || '',
     parentServerId: server?.parentServerId ?? defaultParentId ?? '',
     expectsAgent: server?.expectsAgent ?? true,
   };
@@ -296,6 +319,7 @@ export const ServerForm: React.FC<ServerFormProps> = ({
       setSubmitting(true);
       setFormError(null);
 
+      const operatorFields = resolveOperatorFields(singleForm.owner, operatorOptions);
       const payload: CreateServerInput = {
         name: singleForm.name.trim(),
         ipOrHostname: singleForm.ipOrHostname.trim(),
@@ -305,6 +329,7 @@ export const ServerForm: React.FC<ServerFormProps> = ({
         department: singleForm.department.trim(),
         criticality: singleForm.criticality,
         owner: singleForm.owner.trim(),
+        ...operatorFields,
         parentServerId: singleForm.parentServerId || null,
         expectsAgent: singleForm.expectsAgent,
       };
@@ -312,15 +337,9 @@ export const ServerForm: React.FC<ServerFormProps> = ({
       try {
         if (isEdit && server) {
           const { server: updated } = await serversApi.update(server.id, payload);
-          if (singleForm.owner.trim()) {
-            setServerOperators(updated.id, [singleForm.owner.trim()]);
-          }
           onSaved(updated, null);
         } else {
           const { server: created, agentToken } = await serversApi.create(payload);
-          if (singleForm.owner.trim()) {
-            setServerOperators(created.id, [singleForm.owner.trim()]);
-          }
           onSaved(created, agentToken);
         }
       } catch (err) {
@@ -338,6 +357,7 @@ export const ServerForm: React.FC<ServerFormProps> = ({
       setSubmitting(true);
       setFormError(null);
 
+      const parentOperator = resolveOperatorFields(parentForm.owner, operatorOptions);
       const groupPayload: CreateServerGroupInput = {
         parent: {
           name: parentForm.name.trim(),
@@ -348,35 +368,28 @@ export const ServerForm: React.FC<ServerFormProps> = ({
           department: parentForm.department.trim(),
           criticality: parentForm.criticality,
           owner: parentForm.owner.trim(),
+          ...parentOperator,
           expectsAgent: parentForm.expectsAgent,
         },
-        children: children.map((c) => ({
-          name: c.name.trim(),
-          ipOrHostname: c.ipOrHostname.trim(),
-          type: c.type.trim(),
-          os: c.os,
-          location: c.location.trim(),
-          department: c.department.trim(),
-          criticality: c.criticality,
-          owner: c.owner.trim(),
-          expectsAgent: c.expectsAgent,
-        })),
+        children: children.map((c) => {
+          const childOwner = c.owner.trim() || parentForm.owner.trim();
+          return {
+            name: c.name.trim(),
+            ipOrHostname: c.ipOrHostname.trim(),
+            type: c.type.trim(),
+            os: c.os,
+            location: c.location.trim(),
+            department: c.department.trim(),
+            criticality: c.criticality,
+            owner: childOwner,
+            ...resolveOperatorFields(childOwner, operatorOptions),
+            expectsAgent: c.expectsAgent,
+          };
+        }),
       };
 
       try {
         const response = await serversApi.createGroup(groupPayload);
-        if (parentForm.owner.trim()) {
-          setServerOperators(response.server.id, [parentForm.owner.trim()]);
-        }
-        if (response.agentTokens) {
-          for (let i = 0; i < response.agentTokens.length; i++) {
-            const tok = response.agentTokens[i];
-            const childOwner = children[i]?.owner.trim() || parentForm.owner.trim();
-            if (tok.serverId && childOwner) {
-              setServerOperators(tok.serverId, [childOwner]);
-            }
-          }
-        }
         onSaved(response.server, null, response.agentTokens);
       } catch (err) {
         setFormError(err instanceof ApiError ? err.message : 'Failed to create server group.');

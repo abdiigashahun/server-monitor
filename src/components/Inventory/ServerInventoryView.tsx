@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useApi } from '../../hooks/useApi';
 import * as serversApi from '../../api/servers';
-import { adminPing } from '../../api/adminPing';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { navigate } from '../../router';
@@ -16,7 +15,6 @@ import { VerificationBadge } from '../Servers/VerificationBadge';
 import { ServerForm } from '../Servers/ServerForm';
 import { AgentTokenModal } from '../Servers/AgentTokenModal';
 import { criticalityVariant, titleCase } from '../../utils/formatters';
-import { filterServersForUser } from '../../api/operatorAssignments';
 import {
   Plus,
   Search,
@@ -59,9 +57,9 @@ export const ServerInventoryView: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
 
   // Fetch all servers once to extract dynamic distinct locations and departments
+  // (backend already scopes OPERATOR results).
   const { data: allServersData } = useApi(() => serversApi.list({}), []);
-  const rawAllServers = allServersData?.servers ?? [];
-  const allServers = useMemo(() => filterServersForUser(rawAllServers, user), [rawAllServers, user]);
+  const allServers = allServersData?.servers ?? [];
 
   const distinctLocations = useMemo(() => {
     const set = new Set<string>();
@@ -99,8 +97,7 @@ export const ServerInventoryView: React.FC = () => {
     () => serversApi.list(filters),
     [JSON.stringify(filters)],
   );
-  const rawServers = data?.servers ?? [];
-  const servers = useMemo(() => filterServersForUser(rawServers, user), [rawServers, user]);
+  const servers = data?.servers ?? [];
 
   // Client-side pagination (10 elements per page)
   const totalServers = servers.length;
@@ -137,10 +134,20 @@ export const ServerInventoryView: React.FC = () => {
 
   const handlePing = async (server: Server) => {
     try {
-      const res = await adminPing();
-      toast.success('Admin Ping Successful', `${server.name}: ${res.message}`);
+      const res = await serversApi.ping(server.id);
+      if (res.reachable) {
+        toast.success(
+          'Host reachable',
+          `${server.name}: ${res.latencyMs}ms via ${res.method}${res.detail ? ` · ${res.detail}` : ''}`,
+        );
+      } else {
+        toast.error(
+          'Host unreachable',
+          `${server.name}${res.detail ? `: ${res.detail}` : ''}`,
+        );
+      }
     } catch (err) {
-      toast.error('Ping Failed', err instanceof ApiError ? err.message : 'Unable to verify admin access');
+      toast.error('Ping failed', err instanceof ApiError ? err.message : 'Unable to reach host');
     }
   };
 

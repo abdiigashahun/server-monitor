@@ -50,7 +50,7 @@ import {
   formatTimestamp,
   networkStatusVariant,
 } from '../../utils/formatters';
-import type { ServerHealth, ServerBackups, Server, NetworkStatus } from '../../types';
+import type { ServerHealth, ServerBackups, Server, NetworkStatus, DashboardTrendPoint, DashboardBackupTallies, Range } from '../../types';
 
 // Fan-out charts poll less often than the core cards — a multi-day trend barely
 // moves in 30s and each refresh costs one request per server.
@@ -267,25 +267,22 @@ function aggregateTrend(results: (ServerHealth | null)[]): TrendPoint[] {
     }));
 }
 
-// Mock telemetry points for demonstration when historical samples are sparse
-const MOCK_ESTATE_TREND_POINTS = [
-  { t: '10:00', cpu: 32, mem: 44, disk: 77 },
-  { t: '12:00', cpu: 38, mem: 48, disk: 77.5 },
-  { t: '13:30', cpu: 48, mem: 56, disk: 78 },
-  { t: '15:00', cpu: 30, mem: 48, disk: 78.5 },
-  { t: '16:30', cpu: 52, mem: 58, disk: 79 },
-  { t: '17:30', cpu: 64, mem: 68, disk: 79.2 },
-  { t: '19:00', cpu: 38, mem: 50, disk: 79.5 },
-  { t: '21:00', cpu: 41, mem: 52, disk: 80 },
-  { t: '23:00', cpu: 32, mem: 46, disk: 80.2 },
-];
+function formatTrendDate(date: string): string {
+  try {
+    return new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  } catch {
+    return date;
+  }
+}
 
 export const EstateHealthTrend: React.FC<{
   servers?: Server[];
-  serverIds: string[];
+  /** Daily estate averages from GET /dashboard (used when no server is selected). */
+  estateTrends?: DashboardTrendPoint[];
   note?: string;
+  range?: Range;
   refreshSignal?: number;
-}> = ({ servers = [], serverIds, note, refreshSignal = 0 }) => {
+}> = ({ servers = [], estateTrends = [], note, range = '7d', refreshSignal = 0 }) => {
   const { theme } = useTheme();
   const [viewStyle, setViewStyle] = useState<'cards' | 'combined'>('cards');
   const [selectedServerId, setSelectedServerId] = useState<string>('');
@@ -294,106 +291,80 @@ export const EstateHealthTrend: React.FC<{
   const axis = theme === 'dark' ? '#9CA3AF' : '#6B7280';
   const tooltipBg = theme === 'dark' ? '#111827' : '#FFFFFF';
 
-  // Only non-group servers that expect an agent report metrics
-  const reportingServers = useMemo(() => {
-    if (servers.length > 0) {
-      return servers.filter((s) => !s.isGroup);
-    }
-    return [];
-  }, [servers]);
+  const reportingServers = useMemo(
+    () => servers.filter((s) => !s.isGroup && s.expectsAgent),
+    [servers],
+  );
 
-  // Combine serverIds with selectedServerId if it's not already in the list
-  const effectiveIds = useMemo(() => {
-    if (selectedServerId && !serverIds.includes(selectedServerId)) {
-      return [...serverIds, selectedServerId];
-    }
-    return serverIds;
-  }, [serverIds, selectedServerId]);
-
-  const idsKey = effectiveIds.join(',');
-  const { data, loading, error, reload } = useApi(
+  // Per-server drill-down still uses /servers/{id}/health.
+  const { data: selectedHealth, loading, error, reload } = useApi(
     () =>
-      effectiveIds.length === 0
-        ? Promise.resolve([] as (ServerHealth | null)[])
-        : Promise.all(effectiveIds.map((id) => serversApi.health(id, '7d').catch(() => null))),
-    [idsKey, refreshSignal],
+      selectedServerId
+        ? serversApi.health(selectedServerId, range).catch(() => null)
+        : Promise.resolve(null),
+    [selectedServerId, range, refreshSignal],
     { refreshMs: ESTATE_REFRESH_MS },
   );
 
-  // Selected server entity and health object
   const selectedServer = useMemo(() => {
     if (!selectedServerId) return null;
     return servers.find((s) => s.id === selectedServerId) || null;
   }, [selectedServerId, servers]);
 
-  const selectedHealth = useMemo(() => {
-    if (!selectedServerId || !data) return null;
-    return (
-      data.find(
-        (h) => h?.server?.id === selectedServerId || (h as any)?.serverId === selectedServerId,
-      ) ?? null
-    );
-  }, [selectedServerId, data]);
-
-  // Scoped health array for trend aggregation
-  const targetHealthList = useMemo(() => {
-    if (!data) return [];
-    if (selectedServerId) {
-      return selectedHealth ? [selectedHealth] : [];
-    }
-    return data;
-  }, [data, selectedServerId, selectedHealth]);
-
-  const realPoints = useMemo(() => aggregateTrend(targetHealthList), [targetHealthList]);
-
-  // Use real points if available; if a specific server has only latest snapshot, provide a point; otherwise mock fallback for empty estate
   const points = useMemo(() => {
-    if (realPoints.length > 0) {
-      return realPoints.map((p) => ({
-        t: p.t,
-        cpu: p.cpu !== null ? Math.round(p.cpu * 10) / 10 : 0,
-        mem: p.mem !== null ? Math.round(p.mem * 10) / 10 : 0,
-        disk: p.disk !== null ? Math.round(p.disk * 10) / 10 : 0,
-      }));
+    if (selectedServerId) {
+      const realPoints = aggregateTrend(selectedHealth ? [selectedHealth] : []);
+      if (realPoints.length > 0) {
+        return realPoints.map((p) => ({
+          t: p.t,
+          cpu: p.cpu !== null ? Math.round(p.cpu * 10) / 10 : 0,
+          mem: p.mem !== null ? Math.round(p.mem * 10) / 10 : 0,
+          disk: p.disk !== null ? Math.round(p.disk * 10) / 10 : 0,
+        }));
+      }
+      if (selectedHealth?.latest) {
+        const lat = selectedHealth.latest;
+        return [
+          {
+            t: lat.recordedAt ? formatAxisTime(lat.recordedAt) : 'Current',
+            cpu: Number.isFinite(lat.cpuUsage) ? Math.round(lat.cpuUsage * 10) / 10 : 0,
+            mem: Number.isFinite(lat.memoryUsage) ? Math.round(lat.memoryUsage * 10) / 10 : 0,
+            disk: Number.isFinite(lat.diskUsage) ? Math.round(lat.diskUsage * 10) / 10 : 0,
+          },
+        ];
+      }
+      return [];
     }
-    if (selectedServerId && selectedHealth?.latest) {
-      const lat = selectedHealth.latest;
-      const timeLabel = lat.recordedAt ? formatAxisTime(lat.recordedAt) : 'Current';
-      return [
-        {
-          t: timeLabel,
-          cpu: lat.cpuUsage !== null ? Math.round(lat.cpuUsage * 10) / 10 : 0,
-          mem: lat.memoryUsage !== null ? Math.round(lat.memoryUsage * 10) / 10 : 0,
-          disk: lat.diskUsage !== null ? Math.round(lat.diskUsage * 10) / 10 : 0,
-        },
-      ];
-    }
-    return MOCK_ESTATE_TREND_POINTS;
-  }, [realPoints, selectedServerId, selectedHealth]);
 
-  // Live state metrics (when a specific server is selected)
+    return estateTrends.map((p) => ({
+      t: formatTrendDate(p.date),
+      cpu: p.avgCpu !== null ? Math.round(p.avgCpu * 10) / 10 : 0,
+      mem: p.avgMemory !== null ? Math.round(p.avgMemory * 10) / 10 : 0,
+      disk: p.avgDisk !== null ? Math.round(p.avgDisk * 10) / 10 : 0,
+    }));
+  }, [selectedServerId, selectedHealth, estateTrends]);
+
   const latestCpu = selectedHealth?.latest?.cpuUsage ?? null;
   const latestMem = selectedHealth?.latest?.memoryUsage ?? null;
   const latestDisk = selectedHealth?.latest?.diskUsage ?? null;
 
-  // Averages across the scoped points
   const avgCpu = useMemo(() => {
-    const valid = points.filter((p) => p.cpu !== null && p.cpu > 0);
-    if (valid.length === 0) return latestCpu ?? 41;
-    return valid.reduce((sum, p) => sum + (p.cpu ?? 0), 0) / valid.length;
+    if (points.length === 0) return latestCpu ?? 0;
+    return points.reduce((sum, p) => sum + p.cpu, 0) / points.length;
   }, [points, latestCpu]);
 
   const avgMem = useMemo(() => {
-    const valid = points.filter((p) => p.mem !== null && p.mem > 0);
-    if (valid.length === 0) return latestMem ?? 51;
-    return valid.reduce((sum, p) => sum + (p.mem ?? 0), 0) / valid.length;
+    if (points.length === 0) return latestMem ?? 0;
+    return points.reduce((sum, p) => sum + p.mem, 0) / points.length;
   }, [points, latestMem]);
 
   const avgDisk = useMemo(() => {
-    const valid = points.filter((p) => p.disk !== null && p.disk > 0);
-    if (valid.length === 0) return latestDisk ?? 79;
-    return valid.reduce((sum, p) => sum + (p.disk ?? 0), 0) / valid.length;
+    if (points.length === 0) return latestDisk ?? 0;
+    return points.reduce((sum, p) => sum + p.disk, 0) / points.length;
   }, [points, latestDisk]);
+
+  const rangeLabel = range === '30d' ? '30 days' : '7 days';
+  const showLoading = Boolean(selectedServerId) && loading;
 
   return (
     <section className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 rounded-lg shadow-sm overflow-hidden">
@@ -403,7 +374,7 @@ export const EstateHealthTrend: React.FC<{
           <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
             <Cpu className="w-4 h-4 text-blue-600" />
             {selectedServer ? `${selectedServer.name} Health Trend` : 'Estate Health Trend'}
-            <span className="text-[11px] font-normal text-gray-500 dark:text-gray-400">· 7 days</span>
+            <span className="text-[11px] font-normal text-gray-500 dark:text-gray-400">· {rangeLabel}</span>
           </h3>
           {selectedServer ? (
             <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
@@ -516,10 +487,20 @@ export const EstateHealthTrend: React.FC<{
           </div>
         )}
 
-        {loading ? (
+        {showLoading ? (
           <LoadingPanel label={selectedServer ? `Loading metrics for ${selectedServer.name}…` : 'Averaging estate telemetry…'} />
         ) : error ? (
           <ErrorState error={error} onRetry={reload} />
+        ) : points.length === 0 ? (
+          <EmptyState
+            icon={Cpu}
+            title="No telemetry yet"
+            message={
+              selectedServer
+                ? 'No health samples for this server in the selected range.'
+                : 'No estate health samples yet. Charts will appear once agents report in.'
+            }
+          />
         ) : viewStyle === 'cards' ? (
           /* 3 Area Trend Cards matching standard dashboard card theme */
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
@@ -876,89 +857,26 @@ export const EstateHealthTrend: React.FC<{
 };
 
 // ---------------------------------------------------------------------------
-// Estate backup summary — one bucket per server by worst state
+// Estate backup summary — tallies from GET /dashboard.backupTallies
 // ---------------------------------------------------------------------------
-interface BackupTally {
-  ok: number;
-  stale: number;
-  failed: number;
-  noData: number;
-}
-
-function tallyBackups(results: (ServerBackups | null)[]): BackupTally {
-  const t: BackupTally = { ok: 0, stale: 0, failed: 0, noData: 0 };
-  for (const b of results) {
-    if (!b) continue;
-    if (!b.latest) t.noData++;
-    else if (b.latest.status === 'FAILED') t.failed++;
-    else if (b.staleness?.isStale) t.stale++;
-    else t.ok++;
-  }
-  return t;
-}
-
 export const EstateBackupSummary: React.FC<{
-  serverIds: string[];
+  tallies: DashboardBackupTallies;
   note?: string;
-  refreshSignal?: number;
-}> = ({ serverIds, note, refreshSignal = 0 }) => {
-  const idsKey = serverIds.join(',');
-  const { data, loading, error, reload } = useApi(
-    () =>
-      serverIds.length === 0
-        ? Promise.resolve([] as (ServerBackups | null)[])
-        : Promise.all(serverIds.map((id) => serversApi.backups(id, '7d').catch(() => null))),
-    [idsKey, refreshSignal],
-    { refreshMs: ESTATE_REFRESH_MS },
-  );
-
-  const tally = useMemo(() => tallyBackups(data ?? []), [data]);
+}> = ({ tallies, note }) => {
   const slices: DonutSlice[] = [
-    { name: 'Fresh', value: tally.ok, color: '#16A34A' },
-    { name: 'Stale', value: tally.stale, color: '#D97706' },
-    { name: 'Failed', value: tally.failed, color: '#DC2626' },
-    { name: 'No data', value: tally.noData, color: '#9CA3AF' },
+    { name: 'Success', value: tallies.success, color: '#16A34A' },
+    { name: 'Failed', value: tallies.failed, color: '#DC2626' },
+    { name: 'In progress', value: tallies.inProgress, color: '#2563EB' },
   ];
-
-  if (loading) {
-    return (
-      <section className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 rounded-lg shadow-sm">
-        <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-800">
-          <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
-            <Database className="w-4 h-4 text-blue-600" />
-            Backup status
-          </h3>
-        </div>
-        <div className="p-5">
-          <LoadingPanel label="Checking backups…" />
-        </div>
-      </section>
-    );
-  }
-  if (error) {
-    return (
-      <section className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 rounded-lg shadow-sm">
-        <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-800">
-          <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
-            <Database className="w-4 h-4 text-blue-600" />
-            Backup status
-          </h3>
-        </div>
-        <div className="p-5">
-          <ErrorState error={error} onRetry={reload} />
-        </div>
-      </section>
-    );
-  }
 
   return (
     <DonutCard
       title="Backup status"
       icon={Database}
       slices={slices}
-      centerLabel="servers"
-      emptyMessage="No servers with an agent to check backups for."
-      footnote={note}
+      centerLabel="runs"
+      emptyMessage="No backup runs in this range."
+      footnote={note ?? `${tallies.total} backup run${tallies.total === 1 ? '' : 's'} in range.`}
       action={
         <button
           onClick={() => navigate('backups')}
@@ -1099,31 +1017,8 @@ function aggregateTrendSeries(
     return sorted.slice(-14);
   }
 
-  // Fallback: If not enough historical sample buckets, generate baseline curve points from latest active metrics
-  if (scopedMetrics.length > 0) {
-    const avgCpu = scopedMetrics.reduce((acc, m) => acc + m.cpu, 0) / scopedMetrics.length;
-    const avgMem = scopedMetrics.reduce((acc, m) => acc + m.memory, 0) / scopedMetrics.length;
-    const avgDisk = scopedMetrics.reduce((acc, m) => acc + m.disk, 0) / scopedMetrics.length;
-
-    const now = new Date();
-    const currentHour = now.getHours();
-
-    const points = [];
-    for (let i = 5; i >= 0; i--) {
-      const h = (currentHour - i * 3 + 24) % 24;
-      const timeLabel = `${String(h).padStart(2, '0')}:00`;
-      const wave = Math.sin(i * 1.5);
-      points.push({
-        t: timeLabel,
-        cpu: Math.max(5, Math.min(98, Math.round((avgCpu + wave * 8) * 10) / 10)),
-        mem: Math.max(5, Math.min(98, Math.round((avgMem + Math.cos(i) * 6) * 10) / 10)),
-        disk: Math.max(5, Math.min(98, Math.round((avgDisk + (i * 0.3)) * 10) / 10)),
-      });
-    }
-    return points;
-  }
-
-  return [];
+  // Prefer real history only — never invent a waveform from a single snapshot.
+  return sorted;
 }
 
 // ---------------------------------------------------------------------------

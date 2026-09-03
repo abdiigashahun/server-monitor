@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useApi } from '../../hooks/useApi';
 import * as serversApi from '../../api/servers';
 import * as alertsApi from '../../api/alerts';
+import * as dashboardApi from '../../api/dashboard';
 import { useAuth } from '../../context/AuthContext';
 import { navigate } from '../../router';
 import { Badge } from '../Common/Badge';
@@ -22,22 +23,16 @@ import {
   titleCase,
 } from '../../utils/formatters';
 import {
-  filterServersForUser,
-  filterAlertsForUser,
-} from '../../api/operatorAssignments';
-import {
   DonutCard,
   EstateHealthTrend,
   EstateBackupSummary,
   LiveIndicator,
   type DonutSlice,
 } from './DashboardCharts';
-import type { Server, AlertType } from '../../types';
+import type { AlertType, Range } from '../../types';
 
-// The dashboard silently re-fetches its core cards/alerts on this cadence.
 const CORE_REFRESH_MS = 30_000;
-// Cap on how many servers the estate fan-out charts request health/backups for.
-const ESTATE_CAP = 60;
+const DASHBOARD_RANGE: Range = '7d';
 
 interface StatCardProps {
   icon: React.ElementType;
@@ -79,29 +74,6 @@ const StatCard: React.FC<StatCardProps> = ({ icon: Icon, label, value, tone = 'd
   );
 };
 
-function summarize(servers: Server[]) {
-  const s = {
-    total: servers.length,
-    verified: 0,
-    pending: 0,
-    notRequired: 0,
-    groups: 0,
-    high: 0,
-    medium: 0,
-    low: 0,
-  };
-  for (const srv of servers) {
-    if (srv.verificationStatus === 'VERIFIED') s.verified++;
-    else if (srv.verificationStatus === 'PENDING') s.pending++;
-    else s.notRequired++;
-    if (srv.isGroup) s.groups++;
-    if (srv.criticality === 'HIGH') s.high++;
-    else if (srv.criticality === 'MEDIUM') s.medium++;
-    else s.low++;
-  }
-  return s;
-}
-
 const ALERT_TYPE_COLOR: Record<AlertType, string> = {
   CPU: '#2563EB',
   MEMORY: '#7C3AED',
@@ -114,131 +86,130 @@ export const DashboardOverview: React.FC = () => {
   const { user, can } = useAuth();
   const canServers = can('servers:read');
   const canAlerts = can('alerts:read');
+  const isOperator = user?.role === 'OPERATOR';
 
-  // Bumped by the manual "Refresh" button to force the estate fan-out charts to reload.
   const [refreshSignal, setRefreshSignal] = useState(0);
 
+  const dashboardQuery = useApi(
+    () => (canServers ? dashboardApi.get(DASHBOARD_RANGE) : Promise.resolve(null)),
+    [canServers, refreshSignal],
+    { refreshMs: CORE_REFRESH_MS },
+  );
+
+  // Criticality mix + server picker still need the inventory list (backend-scoped for OPERATOR).
   const serversQuery = useApi(
     () => (canServers ? serversApi.list({}) : Promise.resolve(null)),
-    [canServers],
+    [canServers, refreshSignal],
     { refreshMs: CORE_REFRESH_MS },
   );
+
   const openAlertsQuery = useApi(
     () => (canAlerts ? alertsApi.list({ status: 'OPEN', limit: 100 }) : Promise.resolve(null)),
-    [canAlerts],
-    { refreshMs: CORE_REFRESH_MS },
-  );
-  const criticalQuery = useApi(
-    () => (canAlerts ? alertsApi.list({ status: 'OPEN', severity: 'CRITICAL', limit: 1 }) : Promise.resolve(null)),
-    [canAlerts],
+    [canAlerts, refreshSignal],
     { refreshMs: CORE_REFRESH_MS },
   );
 
-  const rawServers = serversQuery.data?.servers ?? [];
-  const servers = useMemo(() => filterServersForUser(rawServers, user), [rawServers, user]);
-  const stats = useMemo(() => summarize(servers), [servers]);
-
-  const rawOpenAlerts = openAlertsQuery.data?.alerts ?? [];
-  const openAlertsAll = useMemo(
-    () => filterAlertsForUser(rawOpenAlerts, servers, user),
-    [rawOpenAlerts, servers, user],
-  );
+  const servers = serversQuery.data?.servers ?? [];
+  const dash = dashboardQuery.data;
+  const stats = dash?.stats;
+  const openAlertsAll = openAlertsQuery.data?.alerts ?? [];
   const recentOpen = openAlertsAll.slice(0, 5);
 
-  const rawCriticalAlerts = criticalQuery.data?.alerts ?? [];
-  const criticalAlerts = useMemo(
-    () => filterAlertsForUser(rawCriticalAlerts, servers, user),
-    [rawCriticalAlerts, servers, user],
+  const openTotal = stats?.openAlertCount ?? openAlertsQuery.data?.pagination.total ?? openAlertsAll.length;
+  const criticalTotal = stats?.criticalOpenAlertCount ?? 0;
+
+  const criticalitySlices: DonutSlice[] = useMemo(() => {
+    let high = 0;
+    let medium = 0;
+    let low = 0;
+    for (const s of servers) {
+      if (s.criticality === 'HIGH') high++;
+      else if (s.criticality === 'MEDIUM') medium++;
+      else low++;
+    }
+    return [
+      { name: 'High', value: high, color: '#DC2626' },
+      { name: 'Medium', value: medium, color: '#D97706' },
+      { name: 'Low', value: low, color: '#6B7280' },
+    ];
+  }, [servers]);
+
+  const notRequired = Math.max(
+    0,
+    (stats?.serverCount ?? 0) - (stats?.verifiedCount ?? 0) - (stats?.pendingCount ?? 0),
   );
 
-  const isOperator = user?.role === 'OPERATOR';
-  const openTotal = isOperator ? openAlertsAll.length : (openAlertsQuery.data?.pagination.total ?? 0);
-  const criticalTotal = isOperator ? criticalAlerts.length : (criticalQuery.data?.pagination.total ?? 0);
-
-  // Only non-group servers that run an agent actually report health/backups.
-  const reporting = useMemo(() => servers.filter((s) => !s.isGroup && s.expectsAgent), [servers]);
-  const reportingIds = useMemo(() => reporting.slice(0, ESTATE_CAP).map((s) => s.id), [reporting]);
-  const estateNote =
-    reporting.length === 0
-      ? undefined
-      : isOperator
-        ? `Across your ${reporting.length} assigned reporting server${reporting.length === 1 ? '' : 's'}.`
-        : reporting.length > ESTATE_CAP
-          ? `Across the first ${ESTATE_CAP} of ${reporting.length} reporting servers.`
-          : `Across ${reporting.length} reporting server${reporting.length === 1 ? '' : 's'}.`;
-
-  const criticalitySlices: DonutSlice[] = [
-    { name: 'High', value: stats.high, color: '#DC2626' },
-    { name: 'Medium', value: stats.medium, color: '#D97706' },
-    { name: 'Low', value: stats.low, color: '#6B7280' },
-  ];
   const verificationSlices: DonutSlice[] = [
-    { name: 'Verified', value: stats.verified, color: '#16A34A' },
-    { name: 'Pending', value: stats.pending, color: '#D97706' },
-    { name: 'No agent', value: stats.notRequired, color: '#9CA3AF' },
+    { name: 'Verified', value: stats?.verifiedCount ?? 0, color: '#16A34A' },
+    { name: 'Pending', value: stats?.pendingCount ?? 0, color: '#D97706' },
+    { name: 'No agent', value: notRequired, color: '#9CA3AF' },
   ];
+
   const alertsByType = useMemo<DonutSlice[]>(() => {
-    const counts: Partial<Record<AlertType, number>> = {};
-    for (const a of openAlertsAll) counts[a.type] = (counts[a.type] ?? 0) + 1;
+    const fromDash = dash?.alertTallies?.byType;
     return (['CPU', 'MEMORY', 'DISK', 'BACKUP', 'DOWN'] as AlertType[]).map((t) => ({
       name: titleCase(t),
-      value: counts[t] ?? 0,
+      value: fromDash?.[t] ?? openAlertsAll.filter((a) => a.type === t).length,
       color: ALERT_TYPE_COLOR[t],
     }));
-  }, [openAlertsAll]);
-  const alertsFootnote =
-    openTotal > openAlertsAll.length ? `Showing ${openAlertsAll.length} of ${openTotal} open alerts.` : undefined;
+  }, [dash?.alertTallies?.byType, openAlertsAll]);
+
+  const estateNote = isOperator
+    ? `Across your ${stats?.serverCount ?? servers.length} assigned server${(stats?.serverCount ?? servers.length) === 1 ? '' : 's'}.`
+    : stats
+      ? `Across ${stats.serverCount} servers · ${stats.groupCount} group${stats.groupCount === 1 ? '' : 's'}.`
+      : undefined;
 
   const lastUpdated =
     Math.max(
+      dashboardQuery.lastUpdated ?? 0,
       serversQuery.lastUpdated ?? 0,
       openAlertsQuery.lastUpdated ?? 0,
-      criticalQuery.lastUpdated ?? 0,
     ) || null;
-  const refreshing = serversQuery.refreshing || openAlertsQuery.refreshing || criticalQuery.refreshing;
+  const refreshing =
+    dashboardQuery.refreshing || serversQuery.refreshing || openAlertsQuery.refreshing;
 
   const refreshAll = () => {
+    setRefreshSignal((n) => n + 1);
+    dashboardQuery.reload();
     serversQuery.reload();
     openAlertsQuery.reload();
-    criticalQuery.reload();
-    setRefreshSignal((n) => n + 1);
   };
 
-  const serversReady = canServers && !serversQuery.loading && !serversQuery.error;
+  const serversReady = canServers && !dashboardQuery.loading && !dashboardQuery.error;
 
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h2 className="text-lg font-bold text-gray-900 dark:text-white">
-            Welcome back to {user ? ` ${user.name.split(' ')[0]}` : ''}
+            Welcome back{user ? ` ${user.name.split(' ')[0]}` : ''}
           </h2>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
             {isOperator
-              ? `Operator Scope: Viewing telemetry for your ${servers.length} assigned server${servers.length === 1 ? '' : 's'}.`
+              ? `Operator scope: telemetry for your ${stats?.serverCount ?? servers.length} assigned server${(stats?.serverCount ?? servers.length) === 1 ? '' : 's'}.`
               : 'Live status of the monitored estate.'}
           </p>
         </div>
         <LiveIndicator lastUpdated={lastUpdated} refreshing={refreshing} onRefresh={refreshAll} />
       </div>
 
-      {/* Operator notice if 0 servers are assigned */}
-      {isOperator && serversReady && servers.length === 0 && (
+      {isOperator && serversReady && (stats?.serverCount ?? 0) === 0 && (
         <div className="p-4 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 flex items-center justify-between gap-3 text-sm text-amber-900 dark:text-amber-200">
           <div className="flex items-center gap-2">
             <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
             <span>
-              <strong>No Assigned Servers:</strong> You currently have 0 servers assigned to your operator account. Contact a system administrator to assign servers to you.
+              <strong>No Assigned Servers:</strong> You currently have 0 servers assigned to your
+              operator account. Contact a system administrator to assign servers to you.
             </span>
           </div>
         </div>
       )}
 
-      {/* Server + alert stat cards */}
-      {canServers && serversQuery.loading ? (
+      {canServers && dashboardQuery.loading ? (
         <LoadingPanel label="Loading overview…" />
-      ) : canServers && serversQuery.error ? (
-        <ErrorState error={serversQuery.error} onRetry={serversQuery.reload} />
+      ) : canServers && dashboardQuery.error ? (
+        <ErrorState error={dashboardQuery.error} onRetry={dashboardQuery.reload} />
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
           {canServers && (
@@ -246,11 +217,21 @@ export const DashboardOverview: React.FC = () => {
               <StatCard
                 icon={ServerIcon}
                 label="Servers"
-                value={stats.total}
+                value={stats?.serverCount ?? 0}
                 onClick={() => navigate('servers')}
               />
-              <StatCard icon={ShieldCheck} label="Verified" value={stats.verified} tone="success" />
-              <StatCard icon={Clock} label="Pending" value={stats.pending} tone="warning" />
+              <StatCard
+                icon={ShieldCheck}
+                label="Verified"
+                value={stats?.verifiedCount ?? 0}
+                tone="success"
+              />
+              <StatCard
+                icon={Clock}
+                label="Pending"
+                value={stats?.pendingCount ?? 0}
+                tone="warning"
+              />
             </>
           )}
           {canAlerts && (
@@ -258,14 +239,14 @@ export const DashboardOverview: React.FC = () => {
               <StatCard
                 icon={BellRing}
                 label="Open alerts"
-                value={openAlertsQuery.loading ? '—' : openTotal}
+                value={openTotal}
                 tone={openTotal > 0 ? 'warning' : 'success'}
                 onClick={() => navigate('alerts')}
               />
               <StatCard
                 icon={AlertTriangle}
                 label="Critical"
-                value={criticalQuery.loading ? '—' : criticalTotal}
+                value={criticalTotal}
                 tone={criticalTotal > 0 ? 'danger' : 'success'}
                 onClick={() => navigate('alerts')}
               />
@@ -274,7 +255,6 @@ export const DashboardOverview: React.FC = () => {
         </div>
       )}
 
-      {/* Composition & alert-mix donuts */}
       {(serversReady || canAlerts) && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {serversReady && (
@@ -292,7 +272,7 @@ export const DashboardOverview: React.FC = () => {
                 slices={verificationSlices}
                 centerLabel="servers"
                 emptyMessage="No servers in the inventory yet."
-                footnote={`${stats.groups} grouping container${stats.groups === 1 ? '' : 's'}.`}
+                footnote={`${stats?.groupCount ?? 0} grouping container${(stats?.groupCount ?? 0) === 1 ? '' : 's'}.`}
               />
             </>
           )}
@@ -303,29 +283,26 @@ export const DashboardOverview: React.FC = () => {
               slices={alertsByType}
               centerLabel="open"
               emptyMessage="No open alerts right now."
-              footnote={alertsFootnote}
             />
           )}
         </div>
       )}
 
-      {/* Estate health trend (averaged across reporting servers or scoped to selected server) */}
       {serversReady && (
         <EstateHealthTrend
           servers={servers}
-          serverIds={reportingIds}
+          estateTrends={dash?.estateTrends ?? []}
           note={estateNote}
+          range={DASHBOARD_RANGE}
           refreshSignal={refreshSignal}
         />
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* Estate backup status */}
-        {serversReady && (
-          <EstateBackupSummary serverIds={reportingIds} note={estateNote} refreshSignal={refreshSignal} />
+        {serversReady && dash?.backupTallies && (
+          <EstateBackupSummary tallies={dash.backupTallies} note={estateNote} />
         )}
 
-        {/* Recent open alerts */}
         {canAlerts && (
           <section className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 rounded-lg shadow-sm">
             <div className="px-5 py-3 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
@@ -360,10 +337,13 @@ export const DashboardOverview: React.FC = () => {
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <Badge variant={alertSeverityVariant(a.severity)}>{a.severity}</Badge>
-                          <span className="text-sm text-gray-800 dark:text-gray-200 truncate">{a.message}</span>
+                          <span className="text-sm text-gray-800 dark:text-gray-200 truncate">
+                            {a.message}
+                          </span>
                         </div>
                         <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                          {a.server?.name ?? 'Unknown server'} · {titleCase(a.type)} · {formatTimestamp(a.createdAt)}
+                          {a.server?.name ?? 'Unknown server'} · {titleCase(a.type)} ·{' '}
+                          {formatTimestamp(a.createdAt)}
                         </div>
                       </div>
                     </li>

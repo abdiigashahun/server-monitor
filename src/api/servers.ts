@@ -8,6 +8,7 @@ import type {
   UpdateServerInput,
   ServerHealth,
   ServerBackups,
+  ServerPingResult,
   Range,
 } from '../types';
 
@@ -56,4 +57,9 @@ export function health(id: string, range: Range = '7d'): Promise<ServerHealth> {
 
 export function backups(id: string, range: Range = '7d'): Promise<ServerBackups> {
   return apiFetch<ServerBackups>(`/servers/${id}/backups`, { query: { range } });
+}
+
+/** Real host reachability check (ICMP/TCP). Not the same as GET /admin/ping. */
+export function ping(id: string): Promise<ServerPingResult> {
+  return apiFetch<ServerPingResult>(`/servers/${id}/ping`, { method: 'POST' });
 }

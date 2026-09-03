@@ -7,7 +7,6 @@ import { useToast } from '../../context/ToastContext';
 import { ApiError } from '../../api/client';
 import { Spinner } from '../../components/Common/Spinner';
 import { FileText, Download, HeartPulse, DatabaseBackup, ScrollText, CheckCircle2 } from 'lucide-react';
-import { filterServersForUser } from '../../api/operatorAssignments';
 import type { ReportKind, ReportRange, ReportFormat } from '../../types';
 
 const RANGES: ReportRange[] = ['daily', 'weekly', 'monthly'];
@@ -39,8 +38,7 @@ export const ReportsPage: React.FC = () => {
 
   // Optional server scope. If the user can't read servers, we silently omit the picker.
   const { data: serverData, error: serverError } = useApi(() => serversApi.list({}), []);
-  const rawServers = serverData?.servers ?? [];
-  const servers = React.useMemo(() => filterServersForUser(rawServers, user), [rawServers, user]);
+  const servers = serverData?.servers ?? [];
 
   const handleDownload = async () => {
     setDownloading(true);

@@ -65,6 +65,12 @@ export interface Server {
   department: string;
   criticality: Criticality;
   owner: string;
+  /** Assigned operator email (alert routing + OPERATOR scope). */
+  operatorEmail?: string | null;
+  /** Preferred linked operator user id. */
+  operatorUserId?: string | null;
+  /** Derived — true when operatorEmail or operatorUserId is set. */
+  hasOperator?: boolean;
   parentServerId: string | null;
   expectsAgent: boolean;
   verificationStatus: VerificationStatus;
@@ -89,6 +95,8 @@ export interface CreateServerInput {
   department: string;
   criticality: Criticality;
   owner: string;
+  operatorEmail?: string | null;
+  operatorUserId?: string | null;
   parentServerId?: string | null;
   expectsAgent?: boolean;
 }
@@ -102,6 +110,8 @@ export interface CreateServerGroupMemberInput {
   department: string;
   criticality: Criticality;
   owner: string;
+  operatorEmail?: string | null;
+  operatorUserId?: string | null;
   expectsAgent?: boolean;
 }
 
@@ -204,6 +214,14 @@ export interface ServerHealth {
 export type BackupStatus = 'SUCCESS' | 'FAILED' | 'IN_PROGRESS';
 export type BackupType = 'FULL' | 'INCREMENTAL';
 
+export interface BackupServerRef {
+  id: string;
+  name: string;
+  ipOrHostname: string;
+  department: string;
+  criticality: Criticality;
+}
+
 export interface BackupLog {
   id: string;
   serverId: string;
@@ -213,6 +231,31 @@ export interface BackupLog {
   sizeBytes: string; // serialized BigInt as a decimal string
   startedAt: string;
   completedAt: string | null;
+  /** Present on estate `GET /backups` responses. */
+  server?: BackupServerRef;
+}
+
+export interface EstateBackupListFilters {
+  range?: Range;
+  page?: number;
+  limit?: number;
+  status?: BackupStatus;
+  serverId?: string;
+}
+
+export interface EstateBackupSummaryCounts {
+  total: number;
+  success: number;
+  failed: number;
+  inProgress: number;
+}
+
+export interface EstateBackupList {
+  range: Range;
+  backups: BackupLog[];
+  length: number;
+  summary: EstateBackupSummaryCounts;
+  pagination: Pagination;
 }
 
 export interface BackupStaleness {
@@ -259,6 +302,13 @@ export interface AlertServerRef {
   criticality: Criticality;
 }
 
+export interface AlertActor {
+  id: string;
+  name: string;
+  email: string;
+  role: Role;
+}
+
 export interface Alert {
   id: string;
   serverId: string;
@@ -267,7 +317,10 @@ export interface Alert {
   message: string;
   status: AlertStatus;
   createdAt: string;
+  acknowledgedAt: string | null;
+  acknowledgedBy: AlertActor | null;
   resolvedAt: string | null;
+  resolvedBy: AlertActor | null;
   thresholdId: string | null;
   server: AlertServerRef | null;
 }
@@ -382,6 +435,68 @@ export interface AuditListFilters {
 export type ReportRange = 'daily' | 'weekly' | 'monthly';
 export type ReportFormat = 'pdf' | 'excel';
 export type ReportKind = 'health' | 'backups' | 'audit';
+
+// ---------------------------------------------------------------------------
+// Dashboard (GET /dashboard)
+// ---------------------------------------------------------------------------
+export interface DashboardStats {
+  serverCount: number;
+  groupCount: number;
+  verifiedCount: number;
+  pendingCount: number;
+  serversWithOperator: number;
+  openAlertCount: number;
+  criticalOpenAlertCount: number;
+}
+
+export interface DashboardTrendPoint {
+  date: string; // YYYY-MM-DD
+  avgCpu: number | null;
+  avgMemory: number | null;
+  avgDisk: number | null;
+  sampleCount: number;
+  networkDownCount: number;
+}
+
+export interface DashboardBackupTallies {
+  total: number;
+  success: number;
+  failed: number;
+  inProgress: number;
+}
+
+export interface DashboardAlertTallies {
+  total: number;
+  open: number;
+  critical: number;
+  warning: number;
+  byType: Partial<Record<AlertType, number>> & Record<string, number>;
+}
+
+export interface DashboardData {
+  range: Range;
+  from: string;
+  to: string;
+  generatedAt: string;
+  stats: DashboardStats;
+  estateTrends: DashboardTrendPoint[];
+  backupTallies: DashboardBackupTallies;
+  alertTallies: DashboardAlertTallies;
+}
+
+// ---------------------------------------------------------------------------
+// Server ping (POST /servers/{id}/ping)
+// ---------------------------------------------------------------------------
+export interface ServerPingResult {
+  serverId: string;
+  name: string;
+  ipOrHostname: string;
+  reachable: boolean;
+  method: 'icmp' | 'tcp';
+  latencyMs: number;
+  detail?: string | null;
+  checkedAt: string;
+}
 
 // ---------------------------------------------------------------------------
 // Shared

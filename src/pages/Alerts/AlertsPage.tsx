@@ -24,10 +24,6 @@ import {
   criticalityVariant,
 } from '../../utils/formatters';
 import {
-  filterServersForUser,
-  filterAlertsForUser,
-} from '../../api/operatorAssignments';
-import {
   BellRing,
   Check,
   CheckCheck,
@@ -141,13 +137,9 @@ export const AlertsPage: React.FC<AlertsPageProps> = ({ serverId }) => {
     setFilters((f) => ({ ...f, serverId, page: 1 }));
   }
 
-  // Load servers for dropdown filter
+  // Load servers for dropdown filter (backend-scoped for OPERATOR)
   const { data: serversData } = useApi(() => serversApi.list({}), []);
-  const rawServerList = serversData?.servers ?? [];
-  const serverList = useMemo(
-    () => filterServersForUser(rawServerList, currentUser),
-    [rawServerList, currentUser],
-  );
+  const serverList = serversData?.servers ?? [];
 
   // Load users to resolve user roles (Admin vs Operator)
   const { data: usersData } = useApi(() => usersApi.list({}), []);
@@ -164,11 +156,7 @@ export const AlertsPage: React.FC<AlertsPageProps> = ({ serverId }) => {
     () => alertsApi.list(filters),
     [JSON.stringify(filters)],
   );
-  const rawAlerts = data?.alerts ?? [];
-  const alerts = useMemo(
-    () => filterAlertsForUser(rawAlerts, serverList, currentUser),
-    [rawAlerts, serverList, currentUser],
-  );
+  const alerts = data?.alerts ?? [];
   const pagination = data?.pagination;
 
   // Load audit trail from backend to find who resolved & acknowledged alerts
@@ -330,74 +318,43 @@ export const AlertsPage: React.FC<AlertsPageProps> = ({ serverId }) => {
     filters.from !== undefined ||
     filters.to !== undefined;
 
-  // Selected alert actor resolution (without falsely falling back to the current viewing user)
+  // Selected alert actor resolution — prefer backend acknowledgedBy / resolvedBy
   const selectedActors = useMemo(() => {
     if (!selected) return { ack: null, res: null, events: [] };
 
     const local = localActors[selected.id];
     const auditInfo = auditActorMap.get(selected.id);
 
-    let ack: ActorProfile | null = local?.ackUser || auditInfo?.ack || null;
-    let res: ActorProfile | null = local?.resUser || auditInfo?.res || null;
+    const fromActor = (
+      actor: { id: string; name: string; email: string; role: Role } | null | undefined,
+      timestamp?: string | null,
+    ): ActorProfile | null => {
+      if (!actor) return null;
+      return {
+        name: actor.name,
+        email: actor.email,
+        role: actor.role,
+        timestamp: timestamp || undefined,
+      };
+    };
 
-    // Check payload fields if backend returns actor directly
-    const rawAlert = selected as unknown as Record<string, unknown>;
-    if (!ack && rawAlert.acknowledgedByUser) {
-      const u = rawAlert.acknowledgedByUser as Record<string, unknown>;
-      ack = {
-        name: String(u.name || 'Operator'),
-        email: String(u.email || ''),
-        role: (u.role as Role) || resolveUserRole(null, String(u.email || ''), String(u.name || ''), usersList),
-        timestamp: String(rawAlert.acknowledgedAt || selected.createdAt),
-      };
-    } else if (!ack && rawAlert.acknowledgedBy && typeof rawAlert.acknowledgedBy === 'string') {
-      const role = resolveUserRole(null, null, rawAlert.acknowledgedBy, usersList);
-      ack = {
-        name: rawAlert.acknowledgedBy,
-        email: '',
-        role: role,
-        timestamp: String(rawAlert.acknowledgedAt || selected.createdAt),
-      };
-    }
-
-    if (!res && rawAlert.resolvedByUser) {
-      const u = rawAlert.resolvedByUser as Record<string, unknown>;
-      res = {
-        name: String(u.name || 'Operator'),
-        email: String(u.email || ''),
-        role: (u.role as Role) || resolveUserRole(null, String(u.email || ''), String(u.name || ''), usersList),
-        timestamp: selected.resolvedAt || undefined,
-      };
-    } else if (!res && rawAlert.resolvedBy && typeof rawAlert.resolvedBy === 'string') {
-      const role = resolveUserRole(null, null, rawAlert.resolvedBy, usersList);
-      res = {
-        name: rawAlert.resolvedBy,
-        email: '',
-        role: role,
-        timestamp: selected.resolvedAt || undefined,
-      };
-    }
-
-    // Check events relating to this alert to pick up user details if any event touched it
-    if (!res && selected.status === 'RESOLVED' && auditInfo?.events && auditInfo.events.length > 0) {
-      const lastEvent = auditInfo.events[0];
-      if (lastEvent && lastEvent.user) {
-        const role = resolveUserRole(lastEvent.userId, lastEvent.user.email, lastEvent.user.name, usersList);
-        res = {
-          name: lastEvent.user.name,
-          email: lastEvent.user.email || '',
-          role: role,
-          timestamp: selected.resolvedAt || lastEvent.createdAt,
-        };
-      }
-    }
+    let ack: ActorProfile | null =
+      fromActor(selected.acknowledgedBy, selected.acknowledgedAt) ||
+      local?.ackUser ||
+      auditInfo?.ack ||
+      null;
+    let res: ActorProfile | null =
+      fromActor(selected.resolvedBy, selected.resolvedAt) ||
+      local?.resUser ||
+      auditInfo?.res ||
+      null;
 
     return {
       ack,
       res,
       events: auditInfo?.events || [],
     };
-  }, [selected, localActors, auditActorMap, usersList]);
+  }, [selected, localActors, auditActorMap]);
 
   return (
     <div className="space-y-5">
@@ -543,8 +500,28 @@ export const AlertsPage: React.FC<AlertsPageProps> = ({ serverId }) => {
                 {alerts.map((a) => {
                   const auditInfo = auditActorMap.get(a.id);
                   const local = localActors[a.id];
-                  const ackActor = local?.ackUser || auditInfo?.ack;
-                  const resActor = local?.resUser || auditInfo?.res;
+                  const ackActor =
+                    (a.acknowledgedBy
+                      ? {
+                          name: a.acknowledgedBy.name,
+                          email: a.acknowledgedBy.email,
+                          role: a.acknowledgedBy.role,
+                          timestamp: a.acknowledgedAt || undefined,
+                        }
+                      : null) ||
+                    local?.ackUser ||
+                    auditInfo?.ack;
+                  const resActor =
+                    (a.resolvedBy
+                      ? {
+                          name: a.resolvedBy.name,
+                          email: a.resolvedBy.email,
+                          role: a.resolvedBy.role,
+                          timestamp: a.resolvedAt || undefined,
+                        }
+                      : null) ||
+                    local?.resUser ||
+                    auditInfo?.res;
 
                   return (
                     <tr
