@@ -450,7 +450,7 @@ export const ServerInventoryView: React.FC = () => {
                   <th className="px-4 py-3 font-semibold">Department & Location</th>
                   <th className="px-4 py-3 font-semibold">Criticality</th>
                   <th className="px-4 py-3 font-semibold">Verification Status</th>
-                  <th className="px-4 py-3 font-semibold">Owner</th>
+                  <th className="px-4 py-3 font-semibold">Owner / Operator</th>
                   {isAdmin && <th className="px-4 py-3 font-semibold text-right">Actions</th>}
                 </tr>
               </thead>
@@ -495,7 +495,12 @@ export const ServerInventoryView: React.FC = () => {
                       <VerificationBadge status={s.verificationStatus} />
                     </td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-400 text-xs">
-                      {s.owner || '—'}
+                      <div>{s.owner || '—'}</div>
+                      {s.operatorEmail ? (
+                        <div className="text-[11px] text-gray-500 dark:text-gray-500 truncate" title={s.operatorEmail}>
+                          {s.operatorEmail}
+                        </div>
+                      ) : null}
                     </td>
                     {isAdmin && (
                       <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>

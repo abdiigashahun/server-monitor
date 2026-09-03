@@ -329,6 +329,7 @@ export const ServerDetailView: React.FC<ServerDetailViewProps> = ({ serverId }) 
           <Meta label="Location" value={server.location} />
           <Meta label="Department" value={server.department} />
           <Meta label="Owner" value={server.owner} />
+          <Meta label="Operator" value={server.operatorEmail || '—'} />
           <Meta
             label="Parent group"
             value={
