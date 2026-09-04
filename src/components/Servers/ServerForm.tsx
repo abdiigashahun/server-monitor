@@ -111,6 +111,35 @@ const inputClass =
 const labelClass =
   'block text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1';
 
+const TypeSelect: React.FC<{
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}> = ({ value, onChange, disabled }) => {
+  const options = useMemo(() => {
+    if (value && !TYPE_SUGGESTIONS.includes(value)) {
+      return [value, ...TYPE_SUGGESTIONS];
+    }
+    return TYPE_SUGGESTIONS;
+  }, [value]);
+
+  return (
+    <select
+      className={inputClass}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      disabled={disabled}
+    >
+      <option value="">Select type</option>
+      {options.map((t) => (
+        <option key={t} value={t}>
+          {t}
+        </option>
+      ))}
+    </select>
+  );
+};
+
 const DepartmentSelect: React.FC<{
   value: string;
   onChange: (value: string) => void;
@@ -420,9 +449,10 @@ export const ServerForm: React.FC<ServerFormProps> = ({
         department: singleForm.department.trim(),
         criticality: singleForm.criticality,
         owner: singleForm.owner.trim(),
-        parentServerId: singleForm.parentServerId || null,
         expectsAgent: singleForm.expectsAgent,
-        ...(isEdit || operatorFields.operatorEmail ? operatorFields : {}),
+        ...(singleForm.parentServerId?.trim() ? { parentServerId: singleForm.parentServerId.trim() } : {}),
+        ...(operatorFields.operatorEmail ? { operatorEmail: operatorFields.operatorEmail } : {}),
+        ...(operatorFields.operatorUserId ? { operatorUserId: operatorFields.operatorUserId } : {}),
       };
 
       try {
@@ -610,18 +640,10 @@ export const ServerForm: React.FC<ServerFormProps> = ({
 
               <div>
                 <label className={labelClass}>Type</label>
-                <input
-                  className={inputClass}
+                <TypeSelect
                   value={singleForm.type}
-                  onChange={(e) => setSingle('type', e.target.value)}
-                  placeholder="Database"
-                  list="server-types"
+                  onChange={(val) => setSingle('type', val)}
                 />
-                <datalist id="server-types">
-                  {TYPE_SUGGESTIONS.map((t) => (
-                    <option key={t} value={t} />
-                  ))}
-                </datalist>
               </div>
               <div>
                 <label className={labelClass}>Operating system</label>
@@ -689,11 +711,14 @@ export const ServerForm: React.FC<ServerFormProps> = ({
               <div>
                 <label className={labelClass}>Parent Group (Optional)</label>
                 <select
-                  className={inputClass}
+                  className={`${inputClass} ${
+                    defaultParentId ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed opacity-80' : ''
+                  }`}
                   value={singleForm.parentServerId}
                   onChange={(e) => setSingle('parentServerId', e.target.value)}
+                  disabled={Boolean(defaultParentId)}
                 >
-                  <option value="">— None (Standalone Server / No Parent) —</option>
+                  <option value="">— Standalone Server (No Parent) —</option>
                   {parentOptions.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name} ({p.ipOrHostname})
@@ -701,7 +726,9 @@ export const ServerForm: React.FC<ServerFormProps> = ({
                   ))}
                 </select>
                 <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
-                  Optional: Leave as &quot;None&quot; for a standalone server, or select an existing parent group.
+                  {defaultParentId
+                    ? 'Parent group is locked for this child server.'
+                    : 'Select "Standalone Server (No Parent)" for an independent server, or assign to an existing parent group.'}
                 </p>
               </div>
 
@@ -767,11 +794,10 @@ export const ServerForm: React.FC<ServerFormProps> = ({
                 <div>
                   <label className={labelClass}>Type</label>
                   <input
-                    className={inputClass}
-                    value={parentForm.type}
-                    onChange={(e) => setParent('type', e.target.value)}
-                    placeholder="Group"
-                    list="server-types"
+                    className={`${inputClass} bg-gray-100 dark:bg-gray-800/80 text-gray-500 dark:text-gray-400 cursor-not-allowed font-medium`}
+                    value={parentForm.type || 'Group'}
+                    readOnly
+                    disabled
                   />
                 </div>
                 <div>
@@ -952,12 +978,9 @@ export const ServerForm: React.FC<ServerFormProps> = ({
 
                         <div>
                           <label className={labelClass}>Type</label>
-                          <input
-                            className={inputClass}
+                          <TypeSelect
                             value={child.type}
-                            onChange={(e) => setChild(child.id, { type: e.target.value })}
-                            placeholder="Database"
-                            list="server-types"
+                            onChange={(val) => setChild(child.id, { type: val })}
                           />
                         </div>
                         <div>
