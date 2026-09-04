@@ -30,5 +30,12 @@ export function isValidIpOrHostname(value: string): boolean {
 
 export function isValidEmail(value: string): boolean {
   const v = value.trim();
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+  if (!v) return false;
+  if (/\s/.test(v)) return false;
+
+  // Require a valid Gmail address only.
+  const GMAIL_EMAIL =
+    /^(?=.{1,254}$)(?=.{1,64}@)(?!.*\.\.)[A-Za-z0-9](?:[A-Za-z0-9._%+-]*[A-Za-z0-9])?@gmail\.com$/;
+
+  return GMAIL_EMAIL.test(v);
 }
