@@ -1,13 +1,17 @@
 import React, { useState } from 'react';
 import { useApi } from '../../hooks/useApi';
 import { useAuth } from '../../context/AuthContext';
-import * as reportsApi from '../../api/reports';
 import * as serversApi from '../../api/servers';
+import * as backupsApi from '../../api/backups';
+import * as auditApi from '../../api/audit';
 import { useToast } from '../../context/ToastContext';
 import { ApiError } from '../../api/client';
 import { Spinner } from '../../components/Common/Spinner';
-import { FileText, Download, HeartPulse, DatabaseBackup, ScrollText, CheckCircle2 } from 'lucide-react';
-import type { ReportKind, ReportRange, ReportFormat } from '../../types';
+import { ReportPreviewModal } from '../../components/Reports/ReportPreviewModal';
+import { FileText, Download, HeartPulse, DatabaseBackup, ScrollText } from 'lucide-react';
+import type { ReportKind, ReportRange, ReportFormat, Server, BackupLog, AuditLog } from '../../types';
+
+import { generateAndDownloadExcel } from '../../utils/excelExporter';
 
 const RANGES: ReportRange[] = ['daily', 'weekly', 'monthly'];
 
@@ -33,28 +37,66 @@ export const ReportsPage: React.FC = () => {
   const [range, setRange] = useState<ReportRange>('weekly');
   const [format, setFormat] = useState<ReportFormat>('pdf');
   const [serverId, setServerId] = useState('');
-  const [downloading, setDownloading] = useState(false);
-  const [lastFile, setLastFile] = useState<string | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
 
-  // Optional server scope. If the user can't read servers, we silently omit the picker.
+  // Modal State
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewBackups, setPreviewBackups] = useState<BackupLog[]>([]);
+  const [previewAuditLogs, setPreviewAuditLogs] = useState<AuditLog[]>([]);
+
+  // Optional server scope.
   const { data: serverData, error: serverError } = useApi(() => serversApi.list({}), []);
   const servers = serverData?.servers ?? [];
+  const selectedServer = servers.find((s) => s.id === serverId);
 
-  const handleDownload = async () => {
-    setDownloading(true);
-    setLastFile(null);
+  const handleOpenPreview = async () => {
+    setLoadingPreview(true);
     try {
-      const filename = await reportsApi.download(kind, {
-        range,
-        format,
-        serverId: serverId || undefined,
-      });
-      setLastFile(filename);
-      toast.success('Report downloaded', filename);
+      if (kind === 'backups') {
+        const res = await backupsApi.list({ limit: 100 }).catch(() => ({ backups: [] }));
+        setPreviewBackups(res.backups ?? []);
+      } else if (kind === 'audit') {
+        const res = await auditApi.list({ limit: 100 }).catch(() => ({ auditLogs: [] }));
+        setPreviewAuditLogs(res.auditLogs ?? []);
+      }
+      setPreviewOpen(true);
     } catch (err) {
-      toast.error('Report failed', err instanceof ApiError ? err.message : 'Could not generate the report.');
+      toast.error('Failed to load report data', err instanceof ApiError ? err.message : 'Error fetching report items.');
+      setPreviewOpen(true);
     } finally {
-      setDownloading(false);
+      setLoadingPreview(false);
+    }
+  };
+
+  const handleExportExcelDirect = async () => {
+    setLoadingPreview(true);
+    try {
+      let backups: BackupLog[] = [];
+      let auditLogs: AuditLog[] = [];
+      if (kind === 'backups') {
+        const res = await backupsApi.list({ limit: 100 }).catch(() => ({ backups: [] }));
+        backups = res.backups ?? [];
+      } else if (kind === 'audit') {
+        const res = await auditApi.list({ limit: 100 }).catch(() => ({ auditLogs: [] }));
+        auditLogs = res.auditLogs ?? [];
+      }
+
+      const scopeServers = serverId ? servers.filter((s) => s.id === serverId) : servers;
+      const filename = generateAndDownloadExcel({
+        kind,
+        range,
+        serverScopeName: selectedServer?.name,
+        authorName: user?.name || user?.email || 'System Administrator',
+        rawServers: scopeServers,
+        rawBackups: backups,
+        rawAuditLogs: auditLogs,
+      });
+
+      toast.success('Excel Report Generated', `Downloaded ${filename}`);
+    } catch (err) {
+      toast.error('Excel Export Failed', 'Could not generate Excel spreadsheet.');
+    } finally {
+      setLoadingPreview(false);
     }
   };
 
@@ -63,10 +105,10 @@ export const ReportsPage: React.FC = () => {
       <div>
         <h2 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
           <FileText className="w-5 h-5 text-blue-600" />
-          Reports
+          Reports & Documentation
         </h2>
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-          Generate and download health, backup{isAdmin ? ', and audit' : ''} reports as PDF or Excel.
+          Preview, customize executive notes and entries, and download health, backup{isAdmin ? ', and audit' : ''} reports as PDF or Excel.
         </p>
       </div>
 
@@ -142,32 +184,52 @@ export const ReportsPage: React.FC = () => {
           </div>
         )}
 
-        <div className="flex items-center gap-3 pt-1">
+        <div className="flex flex-wrap items-center gap-3 pt-2">
           <button
-            onClick={handleDownload}
-            disabled={downloading}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold disabled:opacity-60 transition-colors cursor-pointer"
+            onClick={handleOpenPreview}
+            disabled={loadingPreview}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold disabled:opacity-60 transition-all cursor-pointer shadow-md hover:shadow-lg"
           >
-            {downloading ? (
+            {loadingPreview ? (
               <Spinner size={16} className="text-white" />
             ) : (
-              <Download className="w-4 h-4" />
+              <FileText className="w-4.5 h-4.5" />
             )}
-            {downloading ? 'Generating…' : 'Download report'}
+            {loadingPreview ? 'Preparing Report…' : 'Generate & Customize Formal Report'}
           </button>
-          {lastFile && !downloading && (
-            <span className="inline-flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400">
-              <CheckCircle2 className="w-4 h-4" />
-              Downloaded {lastFile}
-            </span>
-          )}
+
+          <button
+            onClick={handleExportExcelDirect}
+            disabled={loadingPreview}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-sm font-semibold disabled:opacity-60 transition-all cursor-pointer shadow-xs"
+          >
+            {loadingPreview ? (
+              <Spinner size={14} className="text-emerald-700 dark:text-emerald-300" />
+            ) : (
+              <Download className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+            )}
+            {loadingPreview ? 'Generating Excel…' : 'Export to Excel Spreadsheet (.xlsx)'}
+          </button>
         </div>
-        {downloading && (
-          <p className="text-[11px] text-gray-500 dark:text-gray-400">
-            Large reports may take a moment to compile.
-          </p>
-        )}
+
+        <p className="text-[11px] text-gray-500 dark:text-gray-400">
+          Click <strong>"Generate & Customize Formal Report"</strong> to preview, edit executive narrative notes and metrics live, choose visual templates, and export as a formal styled PDF or formatted Excel document.
+        </p>
       </div>
+
+      {/* Report Preview Modal */}
+      <ReportPreviewModal
+        open={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        kind={kind}
+        range={range}
+        format={format}
+        serverScopeName={selectedServer?.name}
+        authorName={user?.name || user?.email || 'System Administrator'}
+        rawServers={serverId ? servers.filter((s) => s.id === serverId) : servers}
+        rawBackups={previewBackups}
+        rawAuditLogs={previewAuditLogs}
+      />
     </div>
   );
 };

@@ -115,28 +115,27 @@ const TypeSelect: React.FC<{
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
-}> = ({ value, onChange, disabled }) => {
-  const options = useMemo(() => {
-    if (value && !TYPE_SUGGESTIONS.includes(value)) {
-      return [value, ...TYPE_SUGGESTIONS];
-    }
-    return TYPE_SUGGESTIONS;
-  }, [value]);
+  placeholder?: string;
+}> = ({ value, onChange, disabled, placeholder = 'e.g. Database, Web, Application...' }) => {
+  const datalistId = 'server-type-datalist-suggestions';
 
   return (
-    <select
-      className={inputClass}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      disabled={disabled}
-    >
-      <option value="">Select type</option>
-      {options.map((t) => (
-        <option key={t} value={t}>
-          {t}
-        </option>
-      ))}
-    </select>
+    <div>
+      <input
+        type="text"
+        className={inputClass}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        placeholder={placeholder}
+        list={datalistId}
+      />
+      <datalist id={datalistId}>
+        {TYPE_SUGGESTIONS.map((t) => (
+          <option key={t} value={t} />
+        ))}
+      </datalist>
+    </div>
   );
 };
 
