@@ -17,6 +17,7 @@ import { BackupStatusPage } from './pages/Backups/BackupStatusPage';
 import { ThresholdsPage } from './pages/Thresholds/ThresholdsPage';
 import { ReportsPage } from './pages/Reports/ReportsPage';
 import { UsersPage } from './pages/Users/UsersPage';
+import { DepartmentsPage } from './pages/Departments/DepartmentsPage';
 import { AuditLogsPage } from './pages/Audit/AuditLogsPage';
 import { SettingsPage } from './pages/Settings/SettingsPage';
 
@@ -46,6 +47,8 @@ function renderPage(route: Route): React.ReactNode {
       return <ReportsPage />;
     case 'users':
       return <UsersPage />;
+    case 'departments':
+      return <DepartmentsPage />;
     case 'audit':
       return <AuditLogsPage />;
     case 'settings':

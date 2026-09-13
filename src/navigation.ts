@@ -7,6 +7,7 @@ import {
   SlidersHorizontal,
   BarChart3,
   Users,
+  Building2,
   ScrollText,
   Settings,
 } from 'lucide-react';
@@ -31,6 +32,7 @@ export const NAV_ITEMS: NavItem[] = [
   { id: 'thresholds', label: 'Thresholds', icon: SlidersHorizontal, permission: 'thresholds:read', section: 'core' },
   { id: 'reports', label: 'Reports', icon: BarChart3, permission: 'reports:read', section: 'core' },
   { id: 'users', label: 'Users', icon: Users, permission: 'users:read', section: 'admin' },
+  { id: 'departments', label: 'Departments', icon: Building2, permission: 'users:read', section: 'admin' },
   { id: 'audit', label: 'Audit Logs', icon: ScrollText, permission: 'audit:read', section: 'admin' },
   { id: 'settings', label: 'Settings', icon: Settings, section: 'admin' },
 ];

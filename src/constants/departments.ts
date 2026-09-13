@@ -1,19 +1,9 @@
-/** Department choices for server create/edit. Swagger types `department` as a required string with no enum. */
-export const DEPARTMENT_OPTIONS = [
-  'Administration',
-  'Communications',
-  'Finance',
-  'Human Resources',
-  'ICT',
-  'Infrastructure',
-  'Legal',
-  'Operations',
-  'Planning',
-  'Procurement',
-] as const;
-
-export function mergeDepartmentOptions(...extra: Array<string | null | undefined>): string[] {
-  const set = new Set<string>(DEPARTMENT_OPTIONS);
+/** Merge configured department names with any extra values (e.g. a server still on a renamed/legacy dept). */
+export function mergeDepartmentOptions(
+  configured: string[],
+  ...extra: Array<string | null | undefined>
+): string[] {
+  const set = new Set<string>(configured.map((name) => name.trim()).filter(Boolean));
   for (const value of extra) {
     const trimmed = value?.trim();
     if (trimmed) set.add(trimmed);

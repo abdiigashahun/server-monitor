@@ -28,6 +28,9 @@ import {
   LogOut,
   RotateCw,
   AlertOctagon,
+  MapPin,
+  Network,
+  Laptop,
 } from 'lucide-react';
 import type { AuditLog, AuditListFilters } from '../../types';
 
@@ -37,6 +40,13 @@ const controlClass =
 const DEFAULT_LIMIT = 10;
 
 type AuditCategory = 'ALL' | 'USER_AUTH' | 'SYSTEM_MUTATION';
+
+function metaString(metadata: Record<string, unknown> | undefined, key: string): string | null {
+  const value = metadata?.[key];
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
 
 function isUserAuthAction(action: string): boolean {
   return action.startsWith('auth:') || action.includes('login') || action.includes('logout') || action.includes('refresh');
@@ -293,6 +303,7 @@ export const AuditLogsPage: React.FC = () => {
             <option value="auth">auth</option>
             <option value="server">server</option>
             <option value="user">user</option>
+            <option value="department">department</option>
             <option value="threshold">threshold</option>
             <option value="alert">alert</option>
             <option value="report">report</option>
@@ -374,6 +385,7 @@ export const AuditLogsPage: React.FC = () => {
                   <th className="px-4 py-3 font-semibold">Action</th>
                   <th className="px-4 py-3 font-semibold">Actor / User</th>
                   <th className="px-4 py-3 font-semibold">Target</th>
+                  <th className="px-4 py-3 font-semibold">Client</th>
                   <th className="px-4 py-3 font-semibold">Request Context</th>
                   <th className="px-4 py-3 font-semibold text-right">Details</th>
                 </tr>
@@ -386,6 +398,9 @@ export const AuditLogsPage: React.FC = () => {
                   const method = (log.metadata?.method as string) || '';
                   const path = (log.metadata?.path as string) || '';
                   const statusCode = log.metadata?.statusCode as number | undefined;
+                  const ip = metaString(log.metadata, 'ip');
+                  const mac = metaString(log.metadata, 'mac');
+                  const location = metaString(log.metadata, 'location');
 
                   return (
                     <tr
@@ -453,6 +468,29 @@ export const AuditLogsPage: React.FC = () => {
                           <div className="text-[11px] text-gray-400 font-mono truncate max-w-[160px] mt-0.5" title={log.targetId}>
                             {log.targetId}
                           </div>
+                        )}
+                      </td>
+
+                      {/* Client */}
+                      <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400">
+                        {ip || mac || location ? (
+                          <div className="space-y-0.5 min-w-[140px]">
+                            <div className="font-mono text-[11px] text-gray-800 dark:text-gray-200">
+                              {ip || '—'}
+                            </div>
+                            {location && (
+                              <div className="text-[11px] text-gray-500 dark:text-gray-400 truncate max-w-[180px]" title={location}>
+                                {location}
+                              </div>
+                            )}
+                            {mac && (
+                              <div className="text-[10px] font-mono text-gray-400" title={mac}>
+                                {mac}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-gray-400 text-xs">—</span>
                         )}
                       </td>
 
@@ -654,6 +692,66 @@ export const AuditLogsPage: React.FC = () => {
                   </div>
                 </div>
               </div>
+            </div>
+
+            {/* Client context */}
+            <div className="p-3.5 rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-[#111827] space-y-3">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500 flex items-center gap-1.5">
+                <Network className="w-3.5 h-3.5 text-blue-600" />
+                Client Context
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                <div>
+                  <div className="text-gray-400 mb-0.5 flex items-center gap-1">
+                    <Laptop className="w-3 h-3" />
+                    IP address
+                  </div>
+                  <div className="font-mono text-gray-900 dark:text-gray-100 break-all">
+                    {metaString(selected.metadata, 'ip') || '—'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-gray-400 mb-0.5">MAC address</div>
+                  <div className="font-mono text-gray-900 dark:text-gray-100 break-all">
+                    {metaString(selected.metadata, 'mac') || '—'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-gray-400 mb-0.5 flex items-center gap-1">
+                    <MapPin className="w-3 h-3" />
+                    Location
+                  </div>
+                  <div className="text-gray-900 dark:text-gray-100">
+                    {metaString(selected.metadata, 'location') || '—'}
+                  </div>
+                </div>
+              </div>
+              {(metaString(selected.metadata, 'userAgent') ||
+                metaString(selected.metadata, 'method') ||
+                metaString(selected.metadata, 'path')) && (
+                <div className="pt-2 border-t border-gray-100 dark:border-gray-800 space-y-1 text-xs">
+                  {metaString(selected.metadata, 'method') && (
+                    <div>
+                      <span className="text-gray-400">Request: </span>
+                      <span className="font-mono text-gray-800 dark:text-gray-200">
+                        {metaString(selected.metadata, 'method')}{' '}
+                        {metaString(selected.metadata, 'path') || ''}
+                        {typeof selected.metadata?.statusCode === 'number'
+                          ? ` · ${selected.metadata.statusCode}`
+                          : ''}
+                      </span>
+                    </div>
+                  )}
+                  {metaString(selected.metadata, 'userAgent') && (
+                    <div>
+                      <span className="text-gray-400">User agent: </span>
+                      <span className="text-gray-700 dark:text-gray-300 break-all">
+                        {metaString(selected.metadata, 'userAgent')}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}

@@ -399,6 +399,28 @@ export interface UpdateUserInput {
 }
 
 // ---------------------------------------------------------------------------
+// Departments / configuration
+// ---------------------------------------------------------------------------
+export interface Department {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateDepartmentInput {
+  name: string;
+}
+
+export interface UpdateDepartmentInput {
+  name: string;
+}
+
+export interface AppConfiguration {
+  departments: Department[];
+}
+
+// ---------------------------------------------------------------------------
 // Audit logs (ADMIN)
 // ---------------------------------------------------------------------------
 export interface AuditUserRef {

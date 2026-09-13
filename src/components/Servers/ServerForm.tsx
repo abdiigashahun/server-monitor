@@ -15,6 +15,7 @@ import {
   ChevronUp,
 } from 'lucide-react';
 import * as usersApi from '../../api/users';
+import * as configurationApi from '../../api/configuration';
 import { mergeDepartmentOptions } from '../../constants/departments';
 import type {
   Server,
@@ -324,17 +325,17 @@ export const ServerForm: React.FC<ServerFormProps> = ({
     [usersData],
   );
 
-  const { data: inventoryData } = useApi(
-    () => (open ? serversApi.list().catch(() => ({ servers: [] })) : Promise.resolve(null)),
+  const { data: configData } = useApi(
+    () => (open ? configurationApi.get().catch(() => ({ departments: [] })) : Promise.resolve(null)),
     [open],
   );
   const departmentOptions = useMemo(
     () =>
       mergeDepartmentOptions(
-        ...(inventoryData?.servers ?? []).map((s) => s.department),
+        (configData?.departments ?? []).map((d) => d.name),
         server?.department,
       ),
-    [inventoryData, server?.department],
+    [configData, server?.department],
   );
 
   const setSingle = <K extends keyof SingleFormState>(key: K, value: SingleFormState[K]) =>

@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useApi } from '../../hooks/useApi';
 import * as serversApi from '../../api/servers';
+import * as configurationApi from '../../api/configuration';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { navigate } from '../../router';
 import { ApiError } from '../../api/client';
+import { mergeDepartmentOptions } from '../../constants/departments';
 import { Badge } from '../Common/Badge';
 import { LoadingPanel } from '../Common/Spinner';
 import { EmptyState } from '../Common/EmptyState';
@@ -56,10 +58,11 @@ export const ServerInventoryView: React.FC = () => {
   const [filters, setFilters] = useState<ServerListFilters>({});
   const [currentPage, setCurrentPage] = useState(1);
 
-  // Fetch all servers once to extract dynamic distinct locations and departments
+  // Fetch all servers once to extract dynamic distinct locations
   // (backend already scopes OPERATOR results).
   const { data: allServersData } = useApi(() => serversApi.list({}), []);
   const allServers = allServersData?.servers ?? [];
+  const { data: configData } = useApi(() => configurationApi.get().catch(() => ({ departments: [] })), []);
 
   const distinctLocations = useMemo(() => {
     const set = new Set<string>();
@@ -69,13 +72,14 @@ export const ServerInventoryView: React.FC = () => {
     return Array.from(set).sort();
   }, [allServers]);
 
-  const distinctDepartments = useMemo(() => {
-    const set = new Set<string>();
-    for (const s of allServers) {
-      if (s.department && s.department.trim()) set.add(s.department.trim());
-    }
-    return Array.from(set).sort();
-  }, [allServers]);
+  const distinctDepartments = useMemo(
+    () =>
+      mergeDepartmentOptions(
+        (configData?.departments ?? []).map((d) => d.name),
+        ...allServers.map((s) => s.department),
+      ),
+    [configData, allServers],
+  );
 
   useEffect(() => {
     const t = window.setTimeout(
