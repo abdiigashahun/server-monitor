@@ -154,11 +154,16 @@ export const DepartmentsPage: React.FC = () => {
     try {
       await departmentsApi.remove(deleteTarget.id);
       toast.success('Department removed', deleteTarget.name);
+      setDeleteTarget(null);
       reload();
     } catch (err) {
-      toast.error('Delete failed', err instanceof ApiError ? err.message : undefined);
-    } finally {
-      setDeleteTarget(null);
+      const message =
+        err instanceof ApiError
+          ? err.message
+          : 'Unexpected error while removing the department.';
+      toast.error('Delete failed', message);
+      // Keep the confirm dialog open so the backend message stays visible.
+      throw err instanceof Error ? err : new Error(message);
     }
   };
 
@@ -320,7 +325,7 @@ export const DepartmentsPage: React.FC = () => {
         onClose={() => setDeleteTarget(null)}
         onConfirm={confirmDelete}
         title="Remove department"
-        message={`Remove “${deleteTarget?.name ?? 'this department'}”? This fails if any active server still uses it.`}
+        message={`Remove “${deleteTarget?.name ?? 'this department'}”? Departments still assigned to active servers cannot be removed.`}
         confirmLabel="Remove"
         danger
       />
